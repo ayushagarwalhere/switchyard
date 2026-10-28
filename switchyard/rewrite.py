@@ -1,0 +1,248 @@
+"""Apply the migration to a copy of the repo and produce a reviewable diff.
+
+Edits are made at exact AST positions (no regex over source), then every touched file is
+re-parsed and byte-compiled to prove the patch is valid Python.
+"""
+from __future__ import annotations
+
+import ast
+import difflib
+import json
+import py_compile
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from . import config
+
+ENV_BASE = "TOKEN_FACTORY_BASE_URL"
+ENV_KEY = "NEBIUS_API_KEY"
+
+
+def _read(path: Path) -> str:
+    """Read without newline translation, so CRLF files stay CRLF."""
+    with open(path, encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def _write(path: Path, text: str) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+
+
+def _match_newlines(new: str, original: str) -> str:
+    """Inserted snippets use LF; convert them if the file uses CRLF."""
+    if "\r\n" in original:
+        return new.replace("\r\n", "\n").replace("\n", "\r\n")
+    return new
+
+
+def _to_char(line_text: str, byte_col: int) -> int:
+    return len(line_text.encode("utf-8")[:byte_col].decode("utf-8", errors="ignore"))
+
+
+class FileEditor:
+    def __init__(self, text: str):
+        self.text = text
+        self.lines = text.splitlines(keepends=True)
+        self.starts = [0]
+        for ln in self.lines:
+            self.starts.append(self.starts[-1] + len(ln))
+        self.edits: list[tuple[int, int, str]] = []
+
+    def pos(self, line: int, byte_col: int) -> int:
+        return self.starts[line - 1] + _to_char(self.lines[line - 1], byte_col)
+
+    def replace(self, span, new: str):
+        l1, c1, l2, c2 = span
+        self.edits.append((self.pos(l1, c1), self.pos(l2, c2), new))
+
+    def insert_at_line(self, line: int, new: str):
+        p = self.starts[line - 1]
+        self.edits.append((p, p, new))
+
+    def result(self) -> str:
+        out = self.text
+        for start, end, new in sorted(self.edits, key=lambda e: (e[0], e[1]), reverse=True):
+            out = out[:start] + new + out[end:]
+        return out
+
+
+def _env_name(site: dict, used: set[str]) -> str:
+    base = re.sub(r"[^A-Z0-9]+", "_", (site.get("function") or Path(site["file"]).stem).upper()).strip("_") or "CALL"
+    name = f"LLM_MODEL_{base}"
+    i = 2
+    while name in used:
+        name = f"LLM_MODEL_{base}_{i}"
+        i += 1
+    used.add(name)
+    return name
+
+
+def _import_line(tree: ast.Module) -> int:
+    """Line to insert `import os` at: after module docstring and __future__ imports."""
+    line = 1
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Expr) and isinstance(getattr(stmt, "value", None), ast.Constant) and isinstance(stmt.value.value, str) and line == 1:
+            line = (stmt.end_lineno or stmt.lineno) + 1
+            continue
+        if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__":
+            line = (stmt.end_lineno or stmt.lineno) + 1
+            continue
+        break
+    return line
+
+
+def _has_os_import(tree: ast.Module) -> bool:
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Import) and any(a.name == "os" and a.asname is None for a in stmt.names):
+            return True
+    return False
+
+
+def _client_call(src: str, client: dict) -> str:
+    """Rebuild OpenAI(...) pointing at Token Factory, keeping unrelated kwargs."""
+    try:
+        node = ast.parse(client["source"].strip(), mode="eval").body
+    except SyntaxError:
+        node = None
+    keep = []
+    if isinstance(node, ast.Call):
+        for k in node.keywords:
+            if k.arg in ("api_key", "base_url", "organization", "project", "azure_endpoint", "api_version", "azure_deployment"):
+                continue
+            keep.append(ast.unparse(k))
+    func = client["source"].split("(", 1)[0]
+    if client["sdk"] == "openai-azure":
+        func = func.replace("AzureOpenAI", "OpenAI")
+    args = [f'base_url=os.environ.get("{ENV_BASE}", "{config.DEFAULT_BASE_URL}")',
+            f'api_key=os.environ["{ENV_KEY}"]'] + keep
+    return f"{func}({', '.join(args)})"
+
+
+def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: bool = False) -> dict:
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    shutil.copytree(repo, out_dir, ignore=shutil.ignore_patterns(".git"))
+    by_file: dict[str, list[dict]] = {}
+    for s in sites:
+        if s.get("status") == "done" and s["decision"]["action"] == "migrate" and s["site"]["sdk"].startswith("openai") \
+                and s["site"]["sdk"] != "openai-legacy":
+            by_file.setdefault(s["site"]["file"], []).append(s)
+    clients_by_file: dict[str, list[dict]] = {}
+    for c in scan["clients"]:
+        if c["sdk"].startswith("openai"):
+            clients_by_file.setdefault(c["file"], []).append(c)
+
+    used_env: set[str] = set()
+    routes: list[dict] = []
+    changed: list[str] = []
+    manual: list[dict] = []
+    for s in sites:
+        if s.get("status") == "done" and s["decision"]["action"] == "migrate" and s["site"]["file"] not in by_file:
+            manual.append({"file": s["site"]["file"], "line": s["site"]["line"], "sdk": s["site"]["sdk"],
+                           "model": config.MODELS[s["decision"]["model"]].id})
+        elif s.get("status") == "done" and s["decision"]["action"] == "migrate" and not s["site"]["sdk"].startswith("openai"):
+            manual.append({"file": s["site"]["file"], "line": s["site"]["line"], "sdk": s["site"]["sdk"],
+                           "model": config.MODELS[s["decision"]["model"]].id})
+
+    # If every OpenAI call in the repo migrates, point the existing clients at Token Factory
+    # (smallest diff). If some calls stay on the original provider, leave the clients alone and
+    # send migrated calls through a dedicated Token Factory client instead.
+    openai_sites = [s for s in sites if s["site"]["sdk"].startswith("openai")]
+    all_migrate = bool(openai_sites) and all(s.get("status") == "done" and s["decision"]["action"] == "migrate"
+                                             for s in openai_sites)
+    mode = "rewrite-clients" if all_migrate and clients_by_file else "dedicated-client"
+    files = set(by_file) | (set(clients_by_file) if mode == "rewrite-clients" else set())
+    for rel in sorted(files):
+        path = out_dir / rel
+        text = _read(path)
+        tree = ast.parse(text)
+        ed = FileEditor(text)
+        if mode == "rewrite-clients":
+            for c in clients_by_file.get(rel, []):
+                ed.replace((c["line"], c["col"], c["end_line"], c["end_col"]), _client_call(text, c))
+        needs_sync = needs_async = False
+        for s in by_file.get(rel, []):
+            site, dec = s["site"], s["decision"]
+            model_id = config.MODELS[dec["model"]].id
+            env = _env_name(site, used_env)
+            expr = f'os.environ.get("{env}", "{model_id}")'
+            if "model" in site["arg_spans"]:
+                ed.replace(site["arg_spans"]["model"], expr)
+            if mode == "dedicated-client" and site.get("receiver_span"):
+                ed.replace(site["receiver_span"], "_token_factory_async" if site.get("awaited") else "_token_factory")
+                needs_async |= bool(site.get("awaited"))
+                needs_sync |= not site.get("awaited")
+            if dec.get("hint"):
+                hint = json.dumps(dec["hint"])
+                key = "input" if site["sdk"] == "openai-responses" else "messages"
+                if key in site["arg_spans"]:
+                    l1, c1, l2, c2 = site["arg_spans"][key]
+                    orig = text[ed.pos(l1, c1):ed.pos(l2, c2)]
+                    ed.replace(site["arg_spans"][key], f'[{{"role": "system", "content": {hint}}}] + list({orig})')
+            routes.append({"file": rel, "line": site["line"], "function": site["function"], "env": env,
+                           "from": site.get("model") or site.get("model_expr"), "to": model_id,
+                           "hint": dec.get("hint", ""), "pass_rate": dec["pass_rate"]})
+        if not ed.edits:
+            continue
+        header = ""
+        if not _has_os_import(tree):
+            header += "import os\n"
+        have = {a.name for s in tree.body if isinstance(s, ast.ImportFrom) and s.module == "openai"
+                for a in s.names if a.asname is None}
+        names = ", ".join(n for n, on in (("AsyncOpenAI", needs_async), ("OpenAI", needs_sync)) if on and n not in have)
+        if names:
+            header += f"from openai import {names}\n"
+        line = _import_line(tree)
+        if needs_sync or needs_async:
+            # define the client after the last top-level import so the module's own imports run first
+            last_import = max((s.end_lineno or s.lineno for s in tree.body if isinstance(s, (ast.Import, ast.ImportFrom))), default=line - 1)
+            client_def = "\n# Switchyard: calls migrated to NVIDIA Nemotron on Nebius Token Factory\n"
+            kw = f'base_url=os.environ.get("{ENV_BASE}", "{config.DEFAULT_BASE_URL}"), api_key=os.environ.get("{ENV_KEY}")'
+            if needs_sync:
+                client_def += f"_token_factory = OpenAI({kw})\n"
+            if needs_async:
+                client_def += f"_token_factory_async = AsyncOpenAI({kw})\n"
+            ed.insert_at_line(last_import + 1, client_def)
+        if header:
+            ed.insert_at_line(line, header)
+        _write(path, _match_newlines(ed.result(), text))
+        changed.append(rel)
+
+    # verify: every touched file must parse and compile
+    checks = []
+    for rel in changed:
+        try:
+            ast.parse((out_dir / rel).read_text(encoding="utf-8"))
+            py_compile.compile(str(out_dir / rel), doraise=True)
+            checks.append({"file": rel, "ok": True})
+        except Exception as e:  # noqa: BLE001
+            checks.append({"file": rel, "ok": False, "error": str(e)[:300]})
+    for p in out_dir.rglob("__pycache__"):
+        shutil.rmtree(p, ignore_errors=True)
+
+    tests = None
+    if run_tests and any((out_dir / d).exists() for d in ("tests", "test")):
+        try:
+            r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "--no-header"], cwd=out_dir,
+                               capture_output=True, text=True, timeout=300)
+            tests = {"ran": True, "ok": r.returncode == 0, "tail": (r.stdout + r.stderr)[-2000:]}
+        except Exception as e:  # noqa: BLE001
+            tests = {"ran": False, "error": str(e)}
+
+    diff = []
+    for rel in changed:
+        a = _read(repo / rel).splitlines(keepends=True)
+        b = _read(out_dir / rel).splitlines(keepends=True)
+        diff.extend(difflib.unified_diff(a, b, f"a/{rel}", f"b/{rel}"))
+    diff_text = "".join(diff)
+    _write(out_dir.parent / "migration.patch", diff_text)
+    env_example = "\n".join([f"{ENV_KEY}=your-token-factory-key", f"{ENV_BASE}={config.DEFAULT_BASE_URL}"] +
+                            [f"# {r['file']}:{r['line']} {r['function']}\n{r['env']}={r['to']}" for r in routes]) + "\n"
+    (out_dir.parent / "migration.env").write_text(env_example, encoding="utf-8")
+    return {"mode": mode, "changed": changed, "routes": routes, "manual": manual, "compile": checks, "tests": tests,
+            "diff": diff_text, "env": env_example,
+            "ok": all(c["ok"] for c in checks)}

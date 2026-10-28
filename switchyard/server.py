@@ -1,0 +1,154 @@
+"""Web app: start runs, stream progress (SSE), browse results and patches."""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import re
+import threading
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from . import config
+from .pipeline import RUNS_DIR, Run
+
+WEB = Path(__file__).resolve().parent.parent / "web"
+DEMO_DIR = RUNS_DIR / "demo"
+PUBLIC = os.environ.get("SWITCHYARD_PUBLIC") == "1"
+RUN_CODE = os.environ.get("SWITCHYARD_RUN_CODE", "")
+PUBLIC_BUDGET = float(os.environ.get("SWITCHYARD_RUN_BUDGET", "0.50"))
+
+app = FastAPI(title="Switchyard")
+LIVE: dict[str, Run] = {}
+_lock = threading.Lock()
+
+
+class RunRequest(BaseModel):
+    source: str
+    tests: int = 8
+    target: float = 0.85
+    budget: float = 1.0
+    tavily: bool = True
+    code: str = ""
+
+
+def _load(run_id: str) -> dict | None:
+    if run_id in LIVE:
+        return LIVE[run_id].state
+    if not re.fullmatch(r"[\w\-]+", run_id):
+        return None
+    for base in (DEMO_DIR, RUNS_DIR):
+        p = base / run_id / "run.json"
+        if p.exists():
+            return json.loads(p.read_text(encoding="utf-8"))
+    return None
+
+
+@app.get("/api/config")
+def get_config():
+    return {
+        "live": bool(config.api_key()) and (not PUBLIC or bool(RUN_CODE)),
+        "needs_code": PUBLIC and bool(RUN_CODE),
+        "tavily": bool(config.tavily_key()),
+        "tracing": bool(os.environ.get("LANGSMITH_API_KEY")),
+        "models": [{"key": m.key, "id": m.id, "label": m.label, "tier": m.tier, "price_in": m.price_in, "price_out": m.price_out}
+                   for m in config.CANDIDATES],
+        "roles": {"analyze": config.ROLE_ANALYZE, "testgen": config.ROLE_TESTGEN, "judge": config.ROLE_JUDGE, "repair": config.ROLE_REPAIR},
+        "source_prices": config.SOURCE_PRICES,
+    }
+
+
+@app.get("/api/runs")
+def list_runs():
+    out = []
+    seen = set()
+    for base, featured in ((DEMO_DIR, True), (RUNS_DIR, False)):
+        if not base.exists():
+            continue
+        for p in sorted(base.glob("*/run.json"), reverse=True):
+            if p.parent.name in seen or p.parent.name == "demo":
+                continue
+            try:
+                s = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                continue
+            seen.add(p.parent.name)
+            out.append({"id": s["id"], "source": s["source"], "status": s["status"], "featured": featured,
+                        "summary": s.get("summary"), "usage": s.get("usage"), "started": s.get("started")})
+    for rid, run in LIVE.items():
+        if rid not in seen:
+            out.insert(0, {"id": rid, "source": run.source, "status": run.state["status"], "featured": False})
+    if PUBLIC:
+        out = [r for r in out if r["featured"] or r["id"] in LIVE]
+    return out
+
+
+@app.post("/api/runs")
+def start_run(req: RunRequest):
+    if not config.api_key():
+        raise HTTPException(400, "Server has no NEBIUS_API_KEY; live runs are disabled")
+    budget = req.budget
+    if PUBLIC:
+        if not RUN_CODE or req.code != RUN_CODE:
+            raise HTTPException(403, "Live runs need an access code on the public demo. Replays are open to everyone.")
+        if not re.fullmatch(r"https://github\.com/[\w.\-]+/[\w.\-]+(\.git)?(/tree/[\w.\-]+(/[\w.\-/]*)?)?/?", req.source.strip()):
+            raise HTTPException(400, "Public demo accepts public GitHub URLs only")
+        budget = min(budget, PUBLIC_BUDGET)
+    with _lock:
+        if sum(1 for r in LIVE.values() if r.state["status"] == "running") >= 2:
+            raise HTTPException(429, "Two runs are already in progress; try again in a minute")
+        run = Run(req.source, tests=max(3, min(req.tests, 12)), target=max(0.5, min(req.target, 1.0)),
+                  budget=max(0.05, min(budget, 5.0)), use_tavily=req.tavily)
+        LIVE[run.id] = run
+    threading.Thread(target=run.run, daemon=True).start()
+    return {"id": run.id}
+
+
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: str):
+    s = _load(run_id)
+    if s is None:
+        raise HTTPException(404, "run not found")
+    return s
+
+
+@app.get("/api/runs/{run_id}/patch")
+def get_patch(run_id: str):
+    s = _load(run_id)
+    if s is None or not s.get("patch"):
+        raise HTTPException(404, "no patch for this run")
+    return PlainTextResponse(s["patch"]["diff"], media_type="text/x-diff",
+                             headers={"Content-Disposition": f'attachment; filename="switchyard-{run_id}.patch"'})
+
+
+@app.get("/api/runs/{run_id}/events")
+async def stream(run_id: str):
+    if _load(run_id) is None:
+        raise HTTPException(404, "run not found")
+
+    async def gen():
+        i = 0
+        while True:
+            s = _load(run_id)
+            events = s["events"] if s else []
+            while i < len(events):
+                yield f"data: {json.dumps(events[i], default=str)}\n\n"
+                i += 1
+            if not s or s["status"] != "running":
+                yield "event: end\ndata: {}\n\n"
+                return
+            await asyncio.sleep(0.4)
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/")
+def index():
+    return FileResponse(WEB / "index.html")
+
+
+app.mount("/", StaticFiles(directory=WEB), name="web")

@@ -1,0 +1,28 @@
+[project]
+name = "switchyard"
+version = "0.1.0"
+description = "Migrate LLM apps to NVIDIA Nemotron on Nebius Token Factory, with per-call proof of quality."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.40",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "python-dotenv>=1.0",
+  "tavily-python>=0.5",
+]
+
+[project.optional-dependencies]
+tracing = ["langsmith>=0.1"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+switchyard = "switchyard.cli:main"
+
+[tool.setuptools]
+packages = ["switchyard"]
+
+[tool.pytest.ini_options]
+addopts = "-q -p no:cacheprovider --basetemp=.pytest_tmp"
+testpaths = ["tests"]

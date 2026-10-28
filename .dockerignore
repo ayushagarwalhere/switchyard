@@ -1,0 +1,7 @@
+.venv
+.env
+.git
+.pytest_tmp
+**/__pycache__
+runs/*
+!runs/demo

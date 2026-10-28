@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switchyard</title>
+<meta name="description" content="Move your app's LLM calls to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, with tests that prove each switch.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2376b900'/%3E%3Cpath d='M6 22h20M6 22c6 0 8-12 20-12' stroke='%23071' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/hero.css">
+<link rel="stylesheet" href="/tour.css">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js" } }</script>
+</head>
+<body>
+<div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+<header class="top">
+  <a class="brand" href="/" aria-label="Switchyard home">
+    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M6 22h20M6 22c6 0 8-12 20-12" stroke="var(--accent-ink)" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
+    <span>Switchyard</span>
+  </a>
+  <p class="tagline">Move every LLM call to <b>NVIDIA Nemotron</b> on <b>Nebius Token Factory</b>, one call site at a time, with tests that prove each switch.</p>
+  <nav class="top-nav" aria-label="Sections">
+    <a href="#app" data-scroll="#app">Runs</a>
+    <a href="#how" data-scroll="#how">How it works</a>
+    <a href="#tour" class="nav-tour">Judge tour</a>
+  </nav>
+  <button id="themeBtn" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+</header>
+
+<section class="hero" id="hero" aria-label="Switchyard">
+  <div class="hero-canvas" id="heroCanvas" aria-hidden="true"></div>
+  <div class="hero-veil" aria-hidden="true"></div>
+  <div class="hero-label" id="heroLabel" role="status" aria-live="polite"></div>
+  <div class="hero-inner">
+    <p class="hero-kicker"><span class="pulse-dot"></span> NVIDIA Nemotron · Nebius Token Factory</p>
+    <h1 class="hero-title">Your LLM bill,<br><em>re-routed</em> with receipts.</h1>
+    <p class="hero-sub">Switchyard finds every LLM call in your code, tests it on Nemotron Lightning, Super and Ultra, and switches each one to the cheapest model that passes. Every switch ships with the tests that prove it.</p>
+    <div class="hero-cta">
+      <a class="btn-glow" href="#app" data-scroll="#app" data-focus="#source">Start a migration</a>
+      <a class="btn-ghost" href="#app" data-scroll="#main">Watch a recorded run</a>
+      <a class="btn-tour" href="#tour"><span class="pulse-dot"></span>Judge tour · 3 min</a>
+    </div>
+    <ul class="hero-legend" aria-label="Tracks">
+      <li><i style="--c: var(--lightning)"></i>Lightning <span>most calls</span></li>
+      <li><i style="--c: var(--super)"></i>Super <span>some</span></li>
+      <li><i style="--c: var(--ultra)"></i>Ultra <span>only when needed</span></li>
+    </ul>
+  </div>
+  <div class="hero-stats" aria-label="Latest run">
+    <div class="glass-chip"><b id="hero-stat-1">–</b><span>calls switched</span></div>
+    <div class="glass-chip"><b id="hero-stat-2">–</b><span>cheaper per request</span></div>
+    <div class="glass-chip"><b id="hero-stat-3">–</b><span>to run the migration</span></div>
+  </div>
+  <a class="scroll-cue" href="#app" data-scroll="#app" aria-label="Scroll to the app"><span></span></a>
+</section>
+
+<main class="layout" id="app">
+  <aside class="side">
+    <section class="card">
+      <h2>New migration</h2>
+      <form id="runForm">
+        <label>Repository <span class="muted">(GitHub URL or local path)</span>
+          <input id="source" name="source" placeholder="https://github.com/owner/repo" required autocomplete="off">
+        </label>
+        <div class="row2">
+          <label>Tests per call <output id="testsOut">8</output>
+            <input type="range" id="tests" min="3" max="12" value="8">
+          </label>
+          <label>Quality bar <output id="targetOut">85%</output>
+            <input type="range" id="target" min="60" max="100" step="5" value="85">
+          </label>
+        </div>
+        <div class="row2">
+          <label>Budget (USD)
+            <input type="number" id="budget" min="0.05" max="5" step="0.05" value="1.00">
+          </label>
+          <label class="check"><input type="checkbox" id="tavily" checked> Real inputs via Tavily</label>
+        </div>
+        <label id="codeWrap" hidden>Access code
+          <input id="code" autocomplete="off" placeholder="needed for live runs on the public demo">
+        </label>
+        <button id="startBtn" class="primary" type="submit">Start migration run</button>
+        <p id="liveNote" class="muted small"></p>
+      </form>
+    </section>
+    <section class="card">
+      <h2>Runs</h2>
+      <ul id="runList" class="run-list"><li class="muted">Loading…</li></ul>
+    </section>
+    <section class="card how" id="how">
+      <h2>How it works</h2>
+      <ol>
+        <li><b>Scan</b> the repo's code for every OpenAI / Anthropic SDK call. No code is executed.</li>
+        <li><b>Understand</b> each call: <span class="chip m-super">Super</span> describes the task, inputs and output contract.</li>
+        <li><b>Test</b>: <span class="chip m-ultra">Ultra</span> (reasoning on) writes typical + tricky cases and the ideal answers. <span class="chip tav">Tavily</span> supplies real-world inputs.</li>
+        <li><b>Evaluate</b> Lightning, Super and Ultra on every case: hard format checks in code plus a <span class="chip m-super">Super</span> grader.</li>
+        <li><b>Repair</b>: if a cheaper model nearly passes, <span class="chip m-ultra">Ultra</span> adapts the prompt and it is re-tested.</li>
+        <li><b>Patch</b>: rewrite each call to the cheapest model that clears the bar, compile-check it, and produce a reviewable diff.</li>
+      </ol>
+    </section>
+  </aside>
+
+  <section class="main" id="main">
+    <div id="empty" class="empty card">
+      <h1>Pick a run to see the receipts.</h1>
+      <p>Most apps send every call to one frontier model. Many of those calls are classification, extraction or short summaries that a smaller open model handles just as well. Switchyard finds each call, tests it on the NVIDIA Nemotron family, and only switches the calls that pass.</p>
+      <p class="muted">Pick a recorded run on the left to see a full migration, or start a new one.</p>
+    </div>
+    <div id="runView" hidden></div>
+  </section>
+</main>
+
+<section id="tourView" class="tour" hidden aria-label="Judge tour">
+  <div class="tour-bar">
+    <a href="/" class="tour-back" data-tour-close>← Back to the app</a>
+    <div class="tour-progress" id="tourProgress"><i></i></div>
+    <span class="muted small">Judge tour</span>
+  </div>
+  <p class="tour-banner" id="tourBanner" hidden></p>
+  <div class="tour-layout">
+    <nav class="tour-rail" aria-label="Chapters"><ol id="tourRail"></ol></nav>
+    <div id="tourBody" class="tour-body"></div>
+  </div>
+</section>
+
+<template id="tplRun">
+  <div class="run-head card">
+    <div class="run-title">
+      <div>
+        <div class="eyebrow" data-k="status"></div>
+        <h1 data-k="source"></h1>
+        <div class="muted small" data-k="meta"></div>
+      </div>
+      <div class="run-actions">
+        <a class="btn" data-k="patchLink" hidden>Download patch</a>
+      </div>
+    </div>
+    <div class="stats" data-k="stats"></div>
+    <ol class="steps" data-k="steps"></ol>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" class="active" data-tab="sites">Call sites</button>
+    <button role="tab" data-tab="patch">Patch</button>
+    <button role="tab" data-tab="savings">Savings</button>
+    <button role="tab" data-tab="spend">Run cost</button>
+    <button role="tab" data-tab="log">Live log</button>
+  </nav>
+  <div class="tab" data-pane="sites"><div data-k="sites" class="sites"></div></div>
+  <div class="tab" data-pane="patch" hidden><div data-k="patch"></div></div>
+  <div class="tab" data-pane="savings" hidden><div data-k="savings"></div></div>
+  <div class="tab" data-pane="spend" hidden><div data-k="spend"></div></div>
+  <div class="tab" data-pane="log" hidden><pre class="log" data-k="log"></pre></div>
+</template>
+
+<dialog id="caseDlg"><div id="caseBody"></div><form method="dialog"><button class="btn">Close</button></form></dialog>
+<script src="/tour.js"></script>
+<script src="/app.js"></script>
+<script type="module" src="/hero.js"></script>
+</body>
+</html>
