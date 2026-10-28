@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -69,6 +70,11 @@ class TokenFactory:
         self.usage = Usage()
         self.budget = budget_usd
         self._lock = threading.Lock()
+        # cap parallel requests so a big repo doesn't trip rate limits
+        self._slots = threading.BoundedSemaphore(int(os.environ.get("SWITCHYARD_CONCURRENCY", "8")))
+        # flipped off if the endpoint rejects Nemotron's thinking switch
+        self.thinking_toggle = os.environ.get("SWITCHYARD_THINKING_TOGGLE", "1") == "1"
+        self.fallbacks: list[str] = []
 
     def complete(self, model_key: str, messages: list[dict], *, role: str = "candidate", temperature: float | None = None,
                  max_tokens: int | None = None, json_mode: bool = False, reasoning: bool | None = None,
@@ -87,16 +93,24 @@ class TokenFactory:
         elif json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         extra_body = dict(extra or {})
-        if reasoning is not None:
+        if reasoning is not None and self.thinking_toggle:
             # Nemotron chat templates expose a thinking switch.
             extra_body.setdefault("chat_template_kwargs", {})["enable_thinking"] = reasoning
         if extra_body:
             kwargs["extra_body"] = extra_body
         t0 = time.perf_counter()
         try:
-            resp = self.client.chat.completions.create(**kwargs)
+            with self._slots:
+                resp = self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001 - surface any API error as a failed sample
-            if (json_mode or response_format) and "response_format" in str(e):
+            msg_e = str(e)
+            if "chat_template_kwargs" in kwargs.get("extra_body", {}) and ("chat_template_kwargs" in msg_e or "enable_thinking" in msg_e or "extra" in msg_e.lower()):
+                self.thinking_toggle = False
+                self._note("endpoint rejected chat_template_kwargs.enable_thinking; continuing without the thinking switch")
+                return self.complete(model_key, messages, role=role, temperature=temperature, max_tokens=max_tokens,
+                                     json_mode=json_mode, reasoning=None, extra=extra, response_format=response_format)
+            if (json_mode or response_format) and "response_format" in msg_e:
+                self._note(f"{model.key}: endpoint rejected {'json_schema' if response_format else 'json_object'} response_format; falling back")
                 # endpoint rejected structured output: fall back one level (schema -> json_object -> plain)
                 return self.complete(model_key, messages, role=role, temperature=temperature, max_tokens=max_tokens,
                                      json_mode=bool(response_format), reasoning=reasoning, extra=extra)
@@ -120,6 +134,11 @@ class TokenFactory:
         if getattr(msg, "tool_calls", None):
             tool_calls = [{"name": tc.function.name, "arguments": tc.function.arguments} for tc in msg.tool_calls]
         return Completion(text.strip(), reasoning_text, tin, tout, latency, cost, model.key, tool_calls=tool_calls)
+
+    def _note(self, text: str) -> None:
+        with self._lock:
+            if text not in self.fallbacks:
+                self.fallbacks.append(text)
 
     def json(self, model_key: str, messages: list[dict], *, role: str, temperature: float = 0.2,
              max_tokens: int | None = None, reasoning: bool | None = None, retries: int = 2) -> tuple[dict | list, Completion]:

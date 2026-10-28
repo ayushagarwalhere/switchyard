@@ -1,0 +1,24 @@
+# Copy to .github/workflows/switchyard-check.yml in the migrated repo.
+# Re-runs the saved Switchyard test set every night (and on prompt changes) so a
+# switched call that drifts below the quality bar fails CI instead of failing users.
+name: switchyard-check
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  pull_request:
+    paths: ["**/*.py"]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "switchyard @ git+https://github.com/ayushagarwalhere/switchyard"
+      # Commit the run folder Switchyard produced (runs/<id>/run.json) to keep the test set with the code.
+      - run: switchyard check .switchyard/run.json --repo . --budget 0.50
+        env:
+          NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}

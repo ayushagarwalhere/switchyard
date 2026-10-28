@@ -1,3 +1,4 @@
+[hidden] { display: none !important; }
 /* ---------- Judge tour (#tour) ---------------------------------------------- */
 body.touring #hero, body.touring #app { display: none !important; }
 .tour { position: relative; z-index: 1; padding: 0 24px 80px; max-width: 1360px; margin: 0 auto; }
@@ -192,4 +193,12 @@ tr.row-in td { animation: rowin .7s cubic-bezier(.2, .8, .2, 1); }
   .t-text, .t-card, .t-intro > *, .t-end > * { opacity: 1; transform: none; transition: none; }
   .t-bar i { transition: none; width: var(--w); }
   .t-scroll-hint span, .dot.pop, tr.row-in td { animation: none; }
+}
+
+/* narrow screens: tables scroll inside their card, run header wraps */
+.t-table { display: block; overflow-x: auto; }
+@media (max-width: 1000px) {
+  .site-b > div { overflow-x: auto; min-width: 0; }
+  .run-title { flex-wrap: wrap; }
+  .run-actions { justify-content: flex-start; }
 }

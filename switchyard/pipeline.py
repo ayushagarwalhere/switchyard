@@ -63,9 +63,7 @@ class Run:
                 return
             self._last_save = now
             data = json.dumps(self.state, indent=1, default=str)
-            tmp = self.dir / "run.json.tmp"
-            tmp.write_text(data, encoding="utf-8")
-            os.replace(tmp, self.dir / "run.json")
+            _write_atomic(self.dir / "run.json", data)
 
     # -- steps --------------------------------------------------------------
     def fetch(self) -> Path:
@@ -138,6 +136,8 @@ class Run:
         finally:
             if tf is not None:
                 self.state["usage"] = tf.usage.to_dict()
+                if tf.fallbacks:
+                    self.state["notes"] = tf.fallbacks
             self.state["finished"] = time.time()
             self.emit("done", status=self.state["status"], error=self.state.get("error"),
                       summary=self.state.get("summary"), usage=self.state.get("usage"))
@@ -170,7 +170,9 @@ class Run:
                 self.emit("step", step="traces", message=f"{sid}: {len(cases)} production calls used as tests")
             if len(cases) < self.tests:
                 self.emit("site", id=sid, phase="testgen")
-                gen = agents.generate_tests(tf, site, analysis, n=self.tests - len(cases), sources=sources)
+                # a prompt with no runtime values only needs a few samples (it checks consistency)
+                want = self.tests - len(cases) if site["variables"] else max(0, min(3, self.tests) - len(cases))
+                gen = agents.generate_tests(tf, site, analysis, n=want, sources=sources) if want else []
                 for c in gen:
                     c["id"] = len(cases) + 1
                     cases.append(c)
@@ -218,6 +220,30 @@ class Run:
             out["error"] = f"{type(e).__name__}: {e}"
             self.emit("site_error", id=sid, error=out["error"])
         return out
+
+
+def _write_atomic(path: Path, data: str) -> None:
+    """Replace `path` without readers ever seeing half a file.
+
+    On Windows the swap fails while another process holds the file open (the web app
+    reading it, OneDrive syncing, antivirus), so retry briefly, then write in place.
+    Saving progress must never crash a run.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(data, encoding="utf-8")
+        for delay in (0, 0.05, 0.1, 0.2, 0.4):
+            time.sleep(delay)
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                continue
+        path.write_text(data, encoding="utf-8")
+    except OSError:
+        pass  # the in-memory state is still complete; the next save will catch up
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _site_header(c: dict) -> dict:

@@ -33,6 +33,9 @@ def apply(ref: str, repo: str, branch: str | None = None, subdir: str = "") -> d
         _git(root, "branch", "-D", branch, check=False)
         raise RuntimeError(f"git apply failed (is the checkout at the scanned commit {state.get('commit') or ''}?):\n{r.stderr}")
     shutil.copy(run_dir / "migration.env", root / ".env.switchyard.example")
+    # keep the test set with the code so `switchyard check .switchyard/run.json --repo .` works in CI
+    (root / ".switchyard").mkdir(exist_ok=True)
+    shutil.copy(run_dir / "run.json", root / ".switchyard" / "run.json")
     changed = _git(root, "status", "--porcelain").stdout.split("\n")
     return {"branch": branch, "changed": [c[3:] for c in changed if c.strip()], "pr_body": run_dir / "PR.md"}
 

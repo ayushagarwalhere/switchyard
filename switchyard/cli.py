@@ -6,6 +6,8 @@
   switchyard apply  <run> <checkout>       apply the patch on a new branch in your repo
   switchyard pr     <run> <checkout>       apply + commit + push + open a GitHub PR (gh CLI)
   switchyard traces --langsmith <project>  export recorded calls to use as references
+  switchyard review <run>                  human check of the grader (Toloka-ready TSV)
+  switchyard publish <run>                 feature a run in the web app + write README results
   switchyard serve                         web app
   switchyard models                        check Token Factory access
 """
@@ -95,6 +97,17 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--out", default="traces.jsonl")
     tr.add_argument("--limit", type=int, default=500)
 
+    rv = sub.add_parser("review", help="export graded answers for human raters, or import their verdicts")
+    rv.add_argument("run")
+    rv.add_argument("--out", default="review.tsv")
+    rv.add_argument("--per-site", type=int, default=4)
+    rv.add_argument("--import", dest="import_path", metavar="FILE", help="rater results (INPUT:item_id, OUTPUT:verdict)")
+
+    pb = sub.add_parser("publish", help="feature a finished run in the web app and write its results into the README")
+    pb.add_argument("run")
+    pb.add_argument("--no-readme", action="store_true", help="don't touch README.md")
+    pb.add_argument("--allow-simulated", action="store_true", help=argparse.SUPPRESS)
+
     v = sub.add_parser("serve", help="start the web app")
     v.add_argument("--host", default="127.0.0.1")
     v.add_argument("--port", type=int, default=8000)
@@ -107,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return _dispatch(args)
-    except (RuntimeError, FileNotFoundError) as e:
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
 
@@ -163,6 +176,32 @@ def _dispatch(args) -> int:
         from .traces import from_langsmith
         n = from_langsmith(args.langsmith, args.out, limit=args.limit)
         print(f"Wrote {n} LLM calls to {args.out}. Use: switchyard run <repo> --traces {args.out}")
+        return 0
+
+    if args.cmd == "review":
+        from . import review
+        if args.import_path:
+            res = review.import_results(args.run, args.import_path)
+            if res["agreement"] is None:
+                print("no matching verdicts found")
+                return 1
+            print(f"Grader agrees with human raters on {res['agreement']:.0%} of {res['items']} items")
+            return 0
+        n = review.export(args.run, args.out, per_site=args.per_site)
+        print(f"Wrote {n} items to {args.out} (TSV with INPUT:/GOLDEN: columns; upload to Toloka or any rating tool).")
+        print(f"Raters answer OUTPUT:verdict yes/no. Then: switchyard review {args.run} --import results.tsv")
+        return 0
+
+    if args.cmd == "publish":
+        from .publish import publish
+        res = publish(args.run, write_readme=not args.no_readme, allow_simulated=args.allow_simulated)
+        h = res["headline"]
+        print(f"Featured in the web app: {res['dest']}")
+        if res["readme"]:
+            print(f"README Results section updated: {res['readme']}")
+        print(f"\nHeadline: {h['migrated']}/{h['sites']} calls switched, {h['saving_pct']}% cheaper per request, "
+              f"{h['repaired']} repaired, analysis cost ${h['run_cost']:.2f} over {h['run_calls']} Token Factory calls.\n")
+        print(res["markdown"])
         return 0
 
     if args.cmd == "serve":

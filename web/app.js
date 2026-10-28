@@ -310,7 +310,11 @@ function patchView(state) {
   if (!p) return `<p class="muted">${state.status === "running" ? "The patch is written after every call site is tested." : "No patch was produced."}</p>`;
   const compile = (p.compile || []).map((c) => `<div>${c.ok ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'} <code>${esc(c.file)}</code> ${c.ok ? "parses and compiles" : esc(c.error)}</div>`).join("") || `<div class="muted">No files changed.</div>`;
   const routes = (p.routes || []).map((r) => `<tr><td><code>${esc(r.file)}:${r.line}</code><br><span class="muted small">${esc(r.function || "")}</span></td><td><code>${esc(r.from)}</code></td><td><code>${esc(r.to)}</code>${r.hint ? '<br><span class="small m-ultra">+ adapted prompt</span>' : ""}</td><td><code>${esc(r.env)}</code></td></tr>`).join("");
-  const manual = (p.manual || []).length ? `<div class="card"><h3>Needs a manual step</h3>${p.manual.map((m) => `<div class="small"><code>${esc(m.file)}:${m.line}</code> (${esc(m.sdk)} SDK) → <code>${esc(m.model)}</code></div>`).join("")}<p class="small muted">Token Factory speaks the OpenAI API; these calls use another SDK, so Switchyard reports the target model instead of rewriting them.</p></div>` : "";
+  const manual = (p.manual || []).length ? `<div class="card"><h3>Needs a manual step</h3>${p.manual.map((m) => `<div class="small"><code>${esc(m.file)}:${m.line}</code> (${esc(m.sdk)} SDK) → <code>${esc(m.model)}</code>${m.reason ? `<br><span class="muted">${esc(m.reason)}</span>` : ""}</div>`).join("")}<p class="small muted">These calls passed the tests but use an API shape Switchyard doesn't rewrite automatically, so it reports the target model instead.</p></div>` : "";
+  const notes = (state.notes || []).length ? `<div class="card"><h3>Endpoint notes</h3>${state.notes.map((n) => `<div class="small">• ${esc(n)}</div>`).join("")}<p class="small muted">Switchyard fell back automatically and kept going.</p></div>` : "";
+  const pr = state.pr_body ? `<details class="card pr-body" style="margin-bottom:14px"><summary><b>Pull-request description</b> <span class="muted small">written by Switchyard · used by <code>switchyard pr</code></span></summary>
+    <div class="card-h" style="margin-top:10px"><span class="muted small">Markdown</span><button class="copy-btn" data-copy="pr">Copy</button></div>
+    <pre class="mono small" style="white-space:pre-wrap;margin:0;max-height:420px;overflow:auto">${esc(state.pr_body)}</pre></details>` : "";
   return `<div class="panel-grid">
     <div class="card"><h3>Verification</h3>${compile}${p.tests ? `<div>${p.tests.ok ? '<span class="ok">✓</span> project tests pass' : '<span class="bad">✗</span> project tests failed'}</div>` : ""}
       <p class="small muted">Strategy: ${p.mode === "dedicated-client" ? "calls that stay on the original provider keep their client; migrated calls use a dedicated Token Factory client." : "every call migrates, so the existing clients point at Token Factory."} Each model can be overridden with an env var, so rollback is one line.</p></div>
@@ -318,8 +322,9 @@ function patchView(state) {
     ${p.changed?.length ? `<div class="card"><div class="card-h"><h3>Apply it to your repo</h3><button class="copy-btn" data-copy="apply">Copy</button></div>
       <pre class="mono small apply-cmd">${esc(applyCmd(state))}</pre>
       <p class="small muted">Run it from the folder Switchyard scanned. Review the diff first; every model sits behind an env var, so rolling back one call is a one-line change.</p></div>` : ""}
-    ${manual}
+    ${manual}${notes}
   </div>
+  ${pr}
   ${routes ? `<div class="card" style="margin-bottom:14px"><table class="simple"><thead><tr><th>Call site</th><th>Was</th><th>Now</th><th>Override</th></tr></thead><tbody>${routes}</tbody></table></div>` : ""}
   <div class="diff-wrap"><button class="copy-btn diff-copy" data-copy="diff">Copy patch</button><div class="diff">${diffHtml(p.diff || "")}</div></div>`;
 }
@@ -355,7 +360,7 @@ document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-copy]");
   if (!b || !window._shown) return;
   const s = window._shown;
-  const text = { diff: s.patch?.diff, env: s.patch?.env, apply: s.patch && applyCmd(s), cli: cliCmd(s) }[b.dataset.copy];
+  const text = { diff: s.patch?.diff, env: s.patch?.env, apply: s.patch && applyCmd(s), cli: cliCmd(s), pr: s.pr_body }[b.dataset.copy];
   if (text) copyText(text, b);
 });
 
@@ -399,6 +404,10 @@ function startReplay(full, btn, sp) {
   replay = { id: current, i: 0, speed: 1, timer: null, btn, sp, full };
   btn.textContent = "■ Stop replay"; sp.hidden = false; sp.textContent = "1×";
   view.classList.add("replaying");
+  // hold the layout so the page doesn't jump while the run view starts empty
+  view.style.minHeight = `${view.offsetHeight}px`;
+  const top = $(".run-head", view).getBoundingClientRect().top;
+  if (top < 0 || top > window.innerHeight * 0.6) (window.SY_scrollTo ? window.SY_scrollTo("#runView") : view.scrollIntoView());
   const tick = () => {
     if (!replay || replay.id !== current) return;
     replay.i += 1;
@@ -434,7 +443,9 @@ function stopReplay(restore) {
   replay = null;
   if (btn) btn.textContent = "▶ Replay run";
   if (sp) sp.hidden = true;
-  $("#runView")?.classList.remove("replaying");
+  const rv = $("#runView");
+  rv?.classList.remove("replaying");
+  if (rv) rv.style.minHeight = "";
   if (restore && id === current) render(full);
 }
 

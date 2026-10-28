@@ -127,7 +127,7 @@
     const b = s.evals[base], h = s.evals[`${base}+hint`];
     return {
       title: `${MODEL_LABEL[base] || base} went from ${pct(b?.pass_rate)} to ${pct(h?.pass_rate)} with one sentence.`,
-      text: `On <b>${esc(fnOf(s))}</b>, ${MODEL_LABEL[base] || base} failed ${before.filter((r) => !r.passed).length} of ${before.length} cases, mostly on details a short instruction can fix. <b>Nemotron Ultra</b> read the failures and wrote the prompt addition shown here; the cheaper model was then re-tested on the same cases. The new prompt ships in the patch, so the app gets the cheap model <i>and</i> the passing behaviour.`,
+      text: `On <b>${esc(fnOf(s))}</b>, ${MODEL_LABEL[base] || base} failed ${before.filter((r) => !r.passed).length} of ${before.length} cases. <b>Nemotron Ultra</b> read the failures and wrote the prompt addition shown here; the cheaper model was then re-tested on the same cases. The new prompt ships in the patch, so the app gets the cheap model <i>and</i> the passing behaviour.`,
       visual: `<div class="t-hint"><div class="t-cap">Prompt addition written by Ultra</div><p>${esc(s.decision.hint)}</p></div>
         ${c ? `<div class="t-cap" style="margin-top:14px">Case #${c.id} · ${esc(c.name)}</div>` : ""}
         <div class="t-ba"><div class="t-b"><div class="t-ba-h"><span class="bad">✗ Before</span> ${chip(base)}</div><pre>${esc(flip?.output || flip?.error || "")}</pre><div class="t-why">${esc(flip?.reason || "")}${(flip?.checks || []).filter((x) => !x.ok).map((x) => ` · ✗ ${esc(x.name)}`).join("")}</div></div>

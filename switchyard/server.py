@@ -125,6 +125,21 @@ def get_patch(run_id: str):
                              headers={"Content-Disposition": f'attachment; filename="switchyard-{run_id}.patch"'})
 
 
+@app.get("/api/runs/{run_id}/pr")
+def get_pr(run_id: str):
+    """The pull-request description Switchyard wrote for this migration (Markdown)."""
+    s = _load(run_id)
+    if s is None or s.get("status") != "done":
+        raise HTTPException(404, "no report for this run")
+    from .report import pr_body
+    return PlainTextResponse(s.get("pr_body") or pr_body(s), media_type="text/markdown")
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True, "live": bool(config.api_key()), "running": sum(1 for r in LIVE.values() if r.state["status"] == "running")}
+
+
 @app.get("/api/runs/{run_id}/events")
 async def stream(run_id: str):
     if _load(run_id) is None:

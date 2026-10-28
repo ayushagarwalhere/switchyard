@@ -16,7 +16,7 @@ def done_run(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "RUNS_DIR", tmp_path / "runs")
     r = pipeline.Run(str(FIX), tests=4, use_tavily=False)
     state = r.run()
-    assert state["status"] == "done"
+    assert state["status"] == "done", state.get("error")
     return r
 
 
@@ -50,3 +50,49 @@ def test_apply_creates_branch(done_run, tmp_path):
     assert "app.py" in " ".join(res["changed"])
     assert "Nemotron" in (repo / "app.py").read_text()
     assert (repo / ".env.switchyard.example").exists()
+
+
+def test_review_roundtrip(done_run, tmp_path):
+    from switchyard import review
+    out = tmp_path / "review.tsv"
+    n = review.export(str(done_run.dir), str(out))
+    assert n > 0
+    import csv
+    rows = list(csv.DictReader(open(out, encoding="utf-8"), delimiter="\t"))
+    res_file = tmp_path / "results.tsv"
+    with open(res_file, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, delimiter="\t")
+        w.writerow(["INPUT:item_id", "OUTPUT:verdict"])
+        for r in rows:  # humans agree with the grader on every item
+            w.writerow([r["INPUT:item_id"], r["GOLDEN:grader_pass"]])
+    res = review.import_results(str(done_run.dir), str(res_file))
+    assert res["items"] == n and res["agreement"] == 1.0
+
+
+def test_publish_features_run_and_fills_readme(done_run, tmp_path, monkeypatch):
+    import json
+
+    from switchyard import publish as pub
+    monkeypatch.setattr(pub, "RUNS_DIR", tmp_path / "runs")
+    readme = tmp_path / "README.md"
+    readme.write_text("# X\n\n## Results\n\n_Filled in from a recorded run._\n\n## Limits\n\n- a\n", encoding="utf-8")
+    res = pub.publish(str(done_run.dir), readme=readme)
+    saved = json.loads((res["dest"] / "run.json").read_text(encoding="utf-8"))
+    assert saved["source"] == "sample_app"                    # no local paths leak into the public demo
+    text = readme.read_text(encoding="utf-8")
+    assert "of 3** call sites switched" in text and "## Limits" in text and "_Filled in" not in text
+    # publishing again replaces the block instead of stacking a second copy
+    pub.publish(str(done_run.dir), readme=readme)
+    assert readme.read_text(encoding="utf-8").count(pub.START) == 1
+
+
+def test_publish_refuses_unfinished_or_simulated(tmp_path):
+    import json
+
+    from switchyard import publish as pub
+    for rid, status in (("mock-x", "done"), ("r1", "error")):
+        d = tmp_path / rid
+        d.mkdir()
+        (d / "run.json").write_text(json.dumps({"id": rid, "status": status, "source": "s"}), encoding="utf-8")
+        with pytest.raises(ValueError):
+            pub.publish(str(d), write_readme=False)

@@ -43,3 +43,35 @@ def test_partial_migration_uses_dedicated_client(tmp_path):
     assert "_token_factory.chat.completions.create(" in new
     assert new.count("_token_factory.chat") == 1
     assert 'model="gpt-4o"' in new                         # kept call unchanged
+
+
+ANTH = Path(__file__).parent / "fixtures" / "anthropic_app"
+
+
+def test_anthropic_call_goes_through_shim(tmp_path):
+    scan = scanner.scan_repo(ANTH)
+    assert scan["calls"][0]["sdk"] == "anthropic"
+    sites = _sites(scan, {"classify": ("lightning", "")})
+    res = rewrite.apply(ANTH, tmp_path / "out", scan, sites)
+    assert res["ok"] and not res["manual"]
+    new = (tmp_path / "out" / "bot.py").read_text()
+    assert "_token_factory_anthropic.messages.create(" in new
+    assert "client = anthropic.Anthropic()" in new
+
+    # the shim really behaves like Anthropic's Message object
+    ns: dict = {}
+    exec(compile(rewrite.ANTHROPIC_SHIM, "shim", "exec"), ns)
+
+    class FakeOpenAI:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    from types import SimpleNamespace as S
+                    assert kw["messages"][0] == {"role": "system", "content": "sys"}
+                    return S(choices=[S(message=S(content="positive"), finish_reason="stop")],
+                             usage=S(prompt_tokens=5, completion_tokens=1))
+
+    msg = ns["_NemotronMessages"](FakeOpenAI()).messages.create(model="m", system="sys", max_tokens=5,
+                                                                 messages=[{"role": "user", "content": "great"}])
+    assert msg.content[0].text == "positive" and msg.stop_reason == "end_turn"

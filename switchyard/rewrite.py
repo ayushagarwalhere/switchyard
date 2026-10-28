@@ -122,15 +122,69 @@ def _client_call(src: str, client: dict) -> str:
     return f"{func}({', '.join(args)})"
 
 
+ANTHROPIC_SHIM = '''
+
+class _NemotronMessages:
+    """Anthropic-style `messages.create()` served by Nemotron on Token Factory (OpenAI API).
+
+    Returns an object shaped like Anthropic's Message: `.content[0].text`, `.stop_reason`, `.usage`.
+    """
+
+    def __init__(self, client):
+        self._client = client
+        self.messages = self
+
+    @staticmethod
+    def _text(content):
+        if isinstance(content, str):
+            return content
+        return "".join(b.get("text", "") if isinstance(b, dict) else getattr(b, "text", "") for b in content or [])
+
+    def create(self, *, model, messages, system=None, max_tokens=None, temperature=None, stop_sequences=None, **_):
+        from types import SimpleNamespace
+        msgs = [{"role": "system", "content": self._text(system)}] if system else []
+        msgs += [{"role": m["role"], "content": self._text(m["content"])} for m in messages]
+        r = self._client.chat.completions.create(model=model, messages=msgs, max_tokens=max_tokens,
+                                                 temperature=temperature, stop=stop_sequences)
+        choice = r.choices[0]
+        stop = {"stop": "end_turn", "length": "max_tokens"}.get(choice.finish_reason, choice.finish_reason)
+        usage = SimpleNamespace(input_tokens=r.usage.prompt_tokens, output_tokens=r.usage.completion_tokens)
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=choice.message.content or "")],
+                               stop_reason=stop, usage=usage, model=model, role="assistant", type="message")
+'''
+
+
+def _rewritable(site: dict) -> bool:
+    if site["sdk"] in ("openai", "openai-responses"):
+        return True
+    if site["sdk"] == "anthropic":
+        p = site.get("params", {})
+        return bool(site.get("receiver_span")) and not site.get("awaited") and "tools" not in p and not p.get("stream")
+    return False
+
+
+def _manual_reason(site: dict) -> str:
+    if site["sdk"] == "openai-legacy":
+        return "pre-1.0 openai.ChatCompletion API; upgrade the SDK first"
+    if site["sdk"] == "anthropic":
+        return "async, streaming or tool-use Anthropic call; port to the OpenAI SDK by hand"
+    return "unsupported SDK"
+
+
 def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: bool = False) -> dict:
     if out_dir.exists():
         shutil.rmtree(out_dir)
     shutil.copytree(repo, out_dir, ignore=shutil.ignore_patterns(".git"))
     by_file: dict[str, list[dict]] = {}
+    manual: list[dict] = []
     for s in sites:
-        if s.get("status") == "done" and s["decision"]["action"] == "migrate" and s["site"]["sdk"].startswith("openai") \
-                and s["site"]["sdk"] != "openai-legacy":
+        if s.get("status") != "done" or s["decision"]["action"] != "migrate":
+            continue
+        if _rewritable(s["site"]):
             by_file.setdefault(s["site"]["file"], []).append(s)
+        else:
+            manual.append({"file": s["site"]["file"], "line": s["site"]["line"], "sdk": s["site"]["sdk"],
+                           "model": config.MODELS[s["decision"]["model"]].id, "reason": _manual_reason(s["site"])})
     clients_by_file: dict[str, list[dict]] = {}
     for c in scan["clients"]:
         if c["sdk"].startswith("openai"):
@@ -139,14 +193,6 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
     used_env: set[str] = set()
     routes: list[dict] = []
     changed: list[str] = []
-    manual: list[dict] = []
-    for s in sites:
-        if s.get("status") == "done" and s["decision"]["action"] == "migrate" and s["site"]["file"] not in by_file:
-            manual.append({"file": s["site"]["file"], "line": s["site"]["line"], "sdk": s["site"]["sdk"],
-                           "model": config.MODELS[s["decision"]["model"]].id})
-        elif s.get("status") == "done" and s["decision"]["action"] == "migrate" and not s["site"]["sdk"].startswith("openai"):
-            manual.append({"file": s["site"]["file"], "line": s["site"]["line"], "sdk": s["site"]["sdk"],
-                           "model": config.MODELS[s["decision"]["model"]].id})
 
     # If every OpenAI call in the repo migrates, point the existing clients at Token Factory
     # (smallest diff). If some calls stay on the original provider, leave the clients alone and
@@ -164,7 +210,7 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
         if mode == "rewrite-clients":
             for c in clients_by_file.get(rel, []):
                 ed.replace((c["line"], c["col"], c["end_line"], c["end_col"]), _client_call(text, c))
-        needs_sync = needs_async = False
+        needs_sync = needs_async = needs_anthropic = False
         for s in by_file.get(rel, []):
             site, dec = s["site"], s["decision"]
             model_id = config.MODELS[dec["model"]].id
@@ -172,7 +218,12 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
             expr = f'os.environ.get("{env}", "{model_id}")'
             if "model" in site["arg_spans"]:
                 ed.replace(site["arg_spans"]["model"], expr)
-            if mode == "dedicated-client" and site.get("receiver_span"):
+            if site["sdk"] == "anthropic":
+                # Anthropic clients can't be pointed at an OpenAI-compatible endpoint: route this call
+                # through a shim with the same messages.create() shape, backed by Token Factory.
+                ed.replace(site["receiver_span"], "_token_factory_anthropic")
+                needs_anthropic = True
+            elif mode == "dedicated-client" and site.get("receiver_span"):
                 ed.replace(site["receiver_span"], "_token_factory_async" if site.get("awaited") else "_token_factory")
                 needs_async |= bool(site.get("awaited"))
                 needs_sync |= not site.get("awaited")
@@ -193,11 +244,12 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
             header += "import os\n"
         have = {a.name for s in tree.body if isinstance(s, ast.ImportFrom) and s.module == "openai"
                 for a in s.names if a.asname is None}
-        names = ", ".join(n for n, on in (("AsyncOpenAI", needs_async), ("OpenAI", needs_sync)) if on and n not in have)
+        names = ", ".join(n for n, on in (("AsyncOpenAI", needs_async), ("OpenAI", needs_sync or needs_anthropic))
+                          if on and n not in have)
         if names:
             header += f"from openai import {names}\n"
         line = _import_line(tree)
-        if needs_sync or needs_async:
+        if needs_sync or needs_async or needs_anthropic:
             # define the client after the last top-level import so the module's own imports run first
             last_import = max((s.end_lineno or s.lineno for s in tree.body if isinstance(s, (ast.Import, ast.ImportFrom))), default=line - 1)
             client_def = "\n# Switchyard: calls migrated to NVIDIA Nemotron on Nebius Token Factory\n"
@@ -206,6 +258,8 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                 client_def += f"_token_factory = OpenAI({kw})\n"
             if needs_async:
                 client_def += f"_token_factory_async = AsyncOpenAI({kw})\n"
+            if needs_anthropic:
+                client_def += ANTHROPIC_SHIM + f"\n_token_factory_anthropic = _NemotronMessages(OpenAI({kw}))\n"
             ed.insert_at_line(last_import + 1, client_def)
         if header:
             ed.insert_at_line(line, header)

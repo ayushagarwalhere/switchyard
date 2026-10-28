@@ -38,6 +38,8 @@ def analyze(tf: TokenFactory, site: dict) -> dict:
         {"role": "system", "content": ANALYZE_SYS},
         {"role": "user", "content": _site_brief(site)},
     ], role="analyze", temperature=0.1, reasoning=False)
+    if isinstance(data, list):  # some models wrap the object in a list
+        data = next((x for x in data if isinstance(x, dict)), {})
     data.setdefault("inputs", [])
     data.setdefault("output", {})
     names = {i.get("name") for i in data["inputs"]}
@@ -69,7 +71,8 @@ def generate_tests(tf: TokenFactory, site: dict, analysis: dict, n: int = 8, sou
         {"role": "system", "content": TESTGEN_SYS},
         {"role": "user", "content": user},
     ], role="testgen", temperature=0.6, reasoning=True, max_tokens=16000)
-    cases = data.get("cases", data if isinstance(data, list) else [])
+    cases = data if isinstance(data, list) else data.get("cases") or next((v for v in data.values() if isinstance(v, list)), [])
+    cases = [c for c in cases if isinstance(c, dict)]
     out = []
     for i, c in enumerate(cases[:n]):
         inputs = {k: str(v) for k, v in (c.get("inputs") or {}).items()}

@@ -14,6 +14,7 @@ class FakeTF:
 
     def __init__(self, *a, **k):
         self.usage = llm.Usage()
+        self.fallbacks = []
 
     def complete(self, model_key, messages, *, role="candidate", **kw):
         text = self._reply(model_key, messages, role)
