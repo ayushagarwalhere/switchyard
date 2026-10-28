@@ -14,7 +14,28 @@ from . import evaluate, scanner
 from .llm import TokenFactory
 
 
-def load_run(ref: str) -> tuple[dict, Path]:
+def latest_run() -> Path | None:
+    """Most recent finished run on this machine (not the featured demo runs)."""
+    from .pipeline import RUNS_DIR
+    best = None
+    for d in RUNS_DIR.glob("*/run.json"):
+        if d.parent.name == "demo":
+            continue
+        try:
+            st = json.loads(d.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if st.get("status") == "done" and (best is None or st.get("started", 0) > best[0]):
+            best = (st.get("started", 0), d.parent)
+    return best[1] if best else None
+
+
+def load_run(ref: str | None = None) -> tuple[dict, Path]:
+    if ref in (None, "", "latest"):
+        found = latest_run()
+        if not found:
+            raise FileNotFoundError("no finished runs yet; start one with `switchyard run`")
+        ref = str(found)
     p = Path(ref)
     if p.is_dir():
         p = p / "run.json"
@@ -50,9 +71,14 @@ def check(ref: str, repo: str | None = None, target: float | None = None, budget
                 results.append({"site": f"{site['file']}:{site['line']}", "function": site["function"],
                                 "status": "missing", "detail": "call site no longer found"})
                 continue
-            changed = now["messages"] != site["messages"]
+            hint_text = d.get("hint", "")
+            without_hint = [m for m in now["messages"] if not (hint_text and m.get("content") == hint_text)]
+            changed = without_hint != site["messages"]
             site = now
-        res = evaluate.evaluate_model(tf, site, rec["analysis"], rec["cases"], d["model"], hint=d.get("hint", ""))
+        hint = d.get("hint", "")
+        if hint and any(hint in str(m.get("content", "")) for m in site.get("messages") or []):
+            hint = ""   # the patch already put the hint into the code; don't add it twice
+        res = evaluate.evaluate_model(tf, site, rec["analysis"], rec["cases"], d["model"], hint=hint)
         was = rec["evals"][d["choice"]]["pass_rate"]
         ok = res["pass_rate"] >= target
         results.append({"site": f"{site['file']}:{site['line']}", "function": site["function"], "model": d["choice"],

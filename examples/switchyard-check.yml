@@ -1,12 +1,13 @@
-# Copy to .github/workflows/switchyard-check.yml in the migrated repo.
-# Re-runs the saved Switchyard test set every night (and on prompt changes) so a
-# switched call that drifts below the quality bar fails CI instead of failing users.
+# `switchyard apply` adds this file for you. To add it by hand, copy it to
+# .github/workflows/switchyard-check.yml and add a NEBIUS_API_KEY repository secret.
+# It re-runs the saved tests for every call switched to Nemotron, nightly and on
+# Python changes, so a call that drifts below the bar fails CI instead of failing users.
 name: switchyard-check
 on:
   schedule:
     - cron: "0 3 * * *"
   pull_request:
-    paths: ["**/*.py"]
+    paths: ["**/*.py", ".switchyard/**"]
   workflow_dispatch:
 
 jobs:
@@ -14,11 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ayushagarwalhere/switchyard@main
         with:
-          python-version: "3.12"
-      - run: pip install "switchyard @ git+https://github.com/ayushagarwalhere/switchyard"
-      # Commit the run folder Switchyard produced (runs/<id>/run.json) to keep the test set with the code.
-      - run: switchyard check .switchyard/run.json --repo . --budget 0.50
-        env:
-          NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
+          nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
+          path: "."          # folder of the app, if it isn't the repo root

@@ -4,9 +4,56 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+from dotenv import find_dotenv, load_dotenv
+
+# Where Switchyard keeps your key (from `switchyard setup`) and, once installed, its runs.
+HOME = Path(os.environ.get("SWITCHYARD_HOME") or Path.home() / ".switchyard").expanduser()
+USER_ENV = HOME / ".env"
+# A source checkout of Switchyard keeps runs next to the code (the web app's demo runs live there).
+SOURCE_ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_env() -> None:
+    """The project's .env (searched from the current folder up) wins over the saved user key."""
+    load_dotenv(find_dotenv(usecwd=True))
+    if (SOURCE_ROOT / "pyproject.toml").exists():
+        load_dotenv(SOURCE_ROOT / ".env")
+    load_dotenv(USER_ENV)
+
+
+load_env()
+
+
+def runs_dir() -> Path:
+    if os.environ.get("SWITCHYARD_RUNS"):
+        return Path(os.environ["SWITCHYARD_RUNS"]).expanduser()
+    if (SOURCE_ROOT / "pyproject.toml").exists() and (SOURCE_ROOT / "runs").is_dir():
+        return SOURCE_ROOT / "runs"
+    return HOME / "runs"
+
+
+def save_user_env(values: dict[str, str]) -> Path:
+    """Write keys to ~/.switchyard/.env (merged with what's there), readable only by you."""
+    HOME.mkdir(parents=True, exist_ok=True)
+    lines, seen = [], set()
+    if USER_ENV.exists():
+        for line in USER_ENV.read_text(encoding="utf-8").splitlines():
+            k = line.split("=", 1)[0].strip()
+            if k in values:
+                seen.add(k)
+                line = f"{k}={values[k]}"
+            lines.append(line)
+    lines += [f"{k}={v}" for k, v in values.items() if k not in seen]
+    USER_ENV.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        USER_ENV.chmod(0o600)
+    except OSError:
+        pass
+    for k, v in values.items():
+        os.environ[k] = v
+    return USER_ENV
 
 # Token Factory is OpenAI-compatible. Ultra is served from us-central1.
 DEFAULT_BASE_URL = os.environ.get("NEBIUS_BASE_URL", "https://api.tokenfactory.us-central1.nebius.com/v1/")
@@ -90,6 +137,26 @@ def source_price(model_name: str | None) -> tuple[float, float, str]:
     if best:
         return (*SOURCE_PRICES[best], best)
     return (*SOURCE_PRICES["default"], "default (gpt-4o pricing)")
+
+
+SOURCE_PREFIX = "source:"
+
+
+def model(key: str) -> Model:
+    """A candidate by key, or the app's original model as `source:<model id>` (the head-to-head baseline)."""
+    if key.startswith(SOURCE_PREFIX):
+        mid = key[len(SOURCE_PREFIX):]
+        pin, pout, _ = source_price(mid)
+        return Model(key, mid, 0, pin, pout, f"{mid} (original)")
+    return MODELS[key]
+
+
+def baseline_key() -> str | None:
+    """OpenAI key for running the original model on the same tests. Off with SWITCHYARD_BASELINE=0."""
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if os.environ.get("SWITCHYARD_BASELINE", "1") != "1" or not key.startswith("sk-") or "placeholder" in key:
+        return None
+    return key
 
 
 def api_key() -> str | None:

@@ -20,8 +20,8 @@ from .pipeline import RUNS_DIR
 
 ROOT = Path(__file__).resolve().parent.parent
 START, END = "<!-- results:start -->", "<!-- results:end -->"
-ROLE_LABEL = {"analyze": "Understand call sites", "testgen": "Write tests", "judge": "Grade outputs",
-              "repair": "Adapt prompts"}
+ROLE_LABEL = {"investigate": "Investigate the codebase", "analyze": "Understand call sites", "testgen": "Write tests", "judge": "Grade outputs",
+              "repair": "Adapt prompts", "harness": "Write calls for the patched code"}
 
 
 def _pct(x) -> str:
@@ -33,6 +33,15 @@ def _source_label(src: str) -> str:
     if re.match(r"^(https?://|git@)", src or ""):
         return src
     return Path(src or "local").name or "local"
+
+
+def _h2h(state: dict) -> dict:
+    vs = [x["decision"]["vs_source"] for x in state.get("sites", [])
+          if x.get("decision", {}).get("vs_source", {}).get("chosen_score") is not None]
+    if not vs:
+        return {"h2h": 0, "h2h_mine": 0.0, "h2h_src": 0.0}
+    return {"h2h": len(vs), "h2h_mine": sum(v["chosen_score"] for v in vs) / len(vs),
+            "h2h_src": sum(v["score"] for v in vs) / len(vs)}
 
 
 def headline(state: dict) -> dict:
@@ -50,6 +59,9 @@ def headline(state: dict) -> dict:
         "by_model": {config.MODELS[k].label: v for k, v in by_model.items() if k in config.MODELS},
         "run_cost": u.get("cost", 0.0),
         "run_calls": u.get("calls", 0),
+        **_h2h(state),
+        "runtime": len((state.get("patch") or {}).get("runtime") or []),
+        "verified": sum(1 for r in (state.get("patch") or {}).get("runtime") or [] if r.get("status") == "verified"),
         "minutes": round(((state.get("finished") or 0) - (state.get("started") or 0)) / 60, 1),
     }
 
@@ -66,6 +78,10 @@ def results_markdown(state: dict) -> str:
         f"{h['kept']} kept on the original model" + (f", {h['errors']} errored" if h["errors"] else "") + ".",
         f"- **{h['saving_pct']}% cheaper** per request across the switched calls (list prices).",
         f"- **{h['repaired']}** call site(s) only passed after Nemotron Ultra adapted the prompt.",
+        *([f"- Head-to-head on the same tests, the chosen Nemotron model averaged **{h['h2h_mine']:.2f}** vs "
+           f"**{h['h2h_src']:.2f}** for the original model ({h['h2h']} call sites)."] if h["h2h"] else []),
+        *([f"- **{h['verified']} of {h['runtime']}** switched functions were run from the patched code and "
+           f"returned normally after calling Token Factory."] if h["runtime"] else []),
         f"- The whole analysis cost **${h['run_cost']:.2f}** in Token Factory credits "
         f"({h['run_calls']} model calls" + (f", {h['minutes']} min" if h["minutes"] > 0 else "") + ").",
         "",

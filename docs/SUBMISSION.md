@@ -11,12 +11,13 @@ Most AI apps send every request to one frontier model. Teams know that many of t
 ## What it does
 Point Switchyard at a repository. It:
 1. **Finds every LLM call** in the code (static analysis, nothing executed), including the prompt template, parameters and Pydantic output schema.
-2. **Understands each call** with Nemotron 3 Super: the task, what inputs look like, and how the app parses the answer.
+2. **Investigates each call** with a tool-using Nemotron 3 Super agent (search, read file): who calls it, with what real inputs, and which fields of the answer drive the app's logic. Then it writes down the call's contract.
 3. **Writes a test set per call** with Nemotron 3 Ultra (reasoning on): typical and tricky cases with ideal answers. Tavily supplies real-world inputs, and recorded production traffic can be used as the reference.
-4. **Runs a bake-off** of Nemotron Lightning, Super and Ultra on every case. Hard checks run in code (valid JSON, schema, labels, fields), plus a Nemotron grader.
+4. **Runs a bake-off** of Nemotron Lightning, Super and Ultra on every case. Hard checks run in code (valid JSON, schema, labels, fields), plus a Nemotron grader. With an OpenAI key, the app's original model answers the same tests, so every switch comes with a head-to-head.
 5. **Repairs**: when a cheaper model nearly passes, Ultra adapts the prompt and the cheaper model is re-tested.
 6. **Writes the patch**: each call moves to the cheapest model that clears the bar, behind an env var. Calls that fail stay where they are. Every changed file is compile-checked, and Switchyard can open the PR with a full report.
-7. **Keeps it honest**: `switchyard check` re-runs the saved tests in CI and fails the build if a switched call drifts.
+7. **Runs the patched code for real**: each switched function is called once against Token Factory and every HTTP request is recorded. When a function needs structured arguments, Nemotron writes the call, runs it, and fixes it from the traceback.
+8. **Keeps it honest**: `switchyard check` re-runs the saved tests in CI and fails the build if a switched call drifts.
 
 On [daveebbelaar/ai-cookbook](https://github.com/daveebbelaar/ai-cookbook) workflow patterns (11 GPT-4o calls), Switchyard switched [from recorded run] calls, making requests [from recorded run]% cheaper. The whole analysis cost [from recorded run] in Token Factory credits.
 
@@ -35,6 +36,7 @@ On [daveebbelaar/ai-cookbook](https://github.com/daveebbelaar/ai-cookbook) workf
 
 ## Accomplishments we're proud of
 - It refuses to migrate calls that fail, and says why.
+- It doesn't stop at "the prompt works": it runs the patched application code and shows the request reaching Token Factory with the chosen model.
 - The prompt-repair loop: Ultra adapting prompts so Lightning can take over calls it initially failed.
 - A real developer workflow: `run → apply / pr → check` in CI.
 
@@ -50,4 +52,4 @@ On [daveebbelaar/ai-cookbook](https://github.com/daveebbelaar/ai-cookbook) workf
 python, fastapi, nvidia-nemotron, nebius-token-factory, tavily, langsmith, three.js, openai-sdk
 
 ## Feedback on Nebius Token Factory and NVIDIA tools (required section)
-[fill from real experience during the build: what worked, what was confusing, missing features. Be specific: endpoints, structured output support, reasoning toggles, rate limits, docs.]
+[fill from real experience during the build. Start from `switchyard doctor --out doctor.md`: it probes chat, json_object, json_schema, tool calling, the enable_thinking switch and the Responses API on each Nemotron model, so the table is real data. Add: rate limits hit, latency, docs gaps (e.g. no per-model capability list for tool calling; Nemotron isn't in the fine-tuning model list; custom-weight deployment is beta-on-request).]

@@ -1,5 +1,5 @@
 "use strict";
-/* Judge tour: a 7-chapter scrollytelling walk through one real recorded run.
+/* Judge tour: an 8-chapter scrollytelling walk through one real recorded run.
    Every number comes from the run's JSON; nothing is invented. */
 (function () {
   const $t = (s, el = document) => el.querySelector(s);
@@ -15,6 +15,7 @@
     ["bakeoff", "The bake-off"],
     ["repair", "Repair"],
     ["patch", "The patch"],
+    ["run", "Run it for real"],
     ["bill", "The bill"],
   ];
 
@@ -63,9 +64,34 @@
     const out = a.output || {};
     return {
       title: `${fnOf(s)}: ${a.summary || "one call site"}`,
-      text: `<b>Nemotron Super</b> read this call and wrote down its contract: a <b>${esc(a.task_type || "?")}</b> task whose output is <b>${esc(out.format || "text")}</b>${out.labels?.length ? ` (one of ${out.labels.map((x) => `<code>${esc(x)}</code>`).join(", ")})` : ""}${out.json_keys?.length ? ` with keys ${out.json_keys.map((x) => `<code>${esc(x)}</code>`).join(", ")}` : ""}. ${a.parsing ? `The app consumes it like this: ${esc(a.parsing)}.` : ""} That contract is what every cheaper model is held to.`,
+      text: `<b>Nemotron Super</b> read this call and wrote down its contract: a <b>${esc(a.task_type || "?")}</b> task whose output is <b>${esc(out.format || "text")}</b>${out.labels?.length ? ` (one of ${out.labels.map((x) => `<code>${esc(x)}</code>`).join(", ")})` : ""}${out.json_keys?.length ? ` with keys ${out.json_keys.map((x) => `<code>${esc(x)}</code>`).join(", ")}` : ""}. ${a.parsing ? `The app consumes it like this: ${esc(a.parsing)}.` : ""} ${inv(s)}That contract is what every cheaper model is held to.`,
       visual: `<div class="t-code"><div class="t-cap">${esc(s.site.file)}:${s.site.line} · original call</div><pre>${esc(s.site.snippet || "")}</pre></div>
         <div class="t-prompt"><div class="t-cap">Prompt template · <mark class="var">{{runtime values}}</mark></div>${(s.site.messages || []).map((m) => `<div class="t-msg"><span class="t-role">${esc(m.role)}</span><div>${tmpl(m.content)}</div></div>`).join("")}</div>`,
+    };
+  }
+
+  function inv(s) {
+    const v = s.investigation;
+    if (!v || !(v.downstream || v.steps?.length)) return "";
+    const n = v.steps?.length || 0;
+    return `Before that, Super ${n ? `investigated the rest of the codebase with ${n} tool call${n === 1 ? "" : "s"} (search, read file)` : "looked at every place this function is called"}${v.downstream ? `: ${esc(v.downstream)}` : ""}${v.critical?.length ? ` The logic depends on ${v.critical.map((c) => `<b>${esc(c)}</b>`).join(", ")}.` : ""} `;
+  }
+
+  function chRun(st) {
+    const rt = st.patch?.runtime;
+    if (!rt?.length) {
+      return { title: "The patched code wasn't executed in this run.", text: "With a Token Factory key, Switchyard loads each migrated module, calls every switched function once with a test case, and records the HTTP requests it makes. This run had code execution turned off.", visual: `<div class="t-empty">Code execution was off for this run.</div>` };
+    }
+    const ok = rt.filter((r) => r.status === "verified");
+    const agent = rt.filter((r) => r.how === "agent");
+    const pick = ok.find((r) => r.how === "agent") || ok[0] || rt[0];
+    return {
+      title: `${ok.length} of ${rt.length} switched functions ran from the patched code and answered.`,
+      text: `Prompt tests show a model <i>can</i> do the task. This shows the shipped code works: Switchyard loaded each migrated module (definitions only, so demo code never fires), called the switched function with a test case, and recorded every request. Verified means the function returned normally and its request went to Token Factory with the chosen model.${agent.length ? ` For ${agent.length} function${agent.length === 1 ? "" : "s"} the arguments weren't plain strings, so <b>Nemotron Super</b> wrote the call, ran it, and fixed it from the traceback when it failed.` : ""}`,
+      visual: `<div class="t-checks">${rt.map((r) => `<span class="${r.status === "verified" ? "ok" : r.status === "failed" ? "bad" : ""}">${r.status === "verified" ? "✓" : r.status === "failed" ? "✗" : "–"} ${esc(r.function || r.file)}</span>`).join("")}</div>
+        ${pick?.code ? `<div class="t-code"><div class="t-cap">${esc(pick.function)}() · call ${pick.how === "agent" ? "written by Nemotron Super" : "built from the signature"}</div><pre>${esc(pick.code)}</pre></div>` : ""}
+        ${(pick?.requests || []).length ? `<div class="t-env">${pick.requests.map((q) => `<code>POST ${esc(q.url)} · ${esc(q.model || "")}</code>`).join("")}</div>` : ""}
+        ${pick?.preview ? `<div class="t-code"><div class="t-cap">Returned ${esc(pick.returned || "")}</div><pre>${esc(pick.preview)}</pre></div>` : ""}`,
     };
   }
 
@@ -84,7 +110,8 @@
 
   function chBakeoff(st, s) {
     const target = st.settings?.target ?? 0.85;
-    const order = ["lightning", "lightning+hint", "super", "super+hint", "ultra", "ultra+hint"].filter((k) => s.evals?.[k]);
+    const order = ["lightning", "lightning+hint", "super", "super+hint", "ultra", "ultra+hint"].filter((k) => s.evals?.[k])
+      .concat(Object.keys(s.evals || {}).filter((k) => k.startsWith("source:")));
     const maxLat = Math.max(0.001, ...order.map((k) => s.evals[k].latency_p50));
     const per1k = (e) => (e.results?.length ? (e.cost / e.results.length) * 1000 : null);
     const maxCost = Math.max(1e-9, ...order.map((k) => per1k(s.evals[k]) || 0));
@@ -103,7 +130,7 @@
     }).join("");
     return {
       title: d.action === "migrate" ? `${chipText(d.choice)} wins.` : "No Nemotron model cleared the bar, so this call stays put.",
-      text: `Every candidate answered every case. Hard checks run in code (valid JSON, schema, labels, exact fields), and a <b>Nemotron Super</b> grader compares each answer with the reference. The rule: the <b>cheapest</b> model whose pass rate is at least <b>${pct(target)}</b> <i>and</i> whose mean score is within 0.05 of the best model wins.${d.reason ? ` In this case: ${esc(d.reason)}.` : ""}`,
+      text: `Every candidate answered every case. Hard checks run in code (valid JSON, schema, labels, exact fields), and a <b>Nemotron Super</b> grader compares each answer with the reference. The rule: the <b>cheapest</b> model whose pass rate is at least <b>${pct(target)}</b> <i>and</i> whose mean score is within 0.05 of the best model wins.${d.vs_source ? ` The app's original model, <code>${esc(d.vs_source.model)}</code>, answered the same tests too and counts toward "best", so a switch has to be about as good as what runs today.` : ""}${d.reason ? ` In this case: ${esc(d.reason)}.` : ""}`,
       visual: `<div class="t-bake">${rows}</div><p class="t-note">Line on each pass-rate bar = the ${pct(target)} quality bar.</p>`,
     };
   }
@@ -156,7 +183,7 @@
     const sum = st.summary || {};
     const u = st.usage || { by_role: {}, cost: 0, calls: 0 };
     const done = (st.sites || []).filter((s) => s.decision);
-    const roleName = { analyze: "Understand call sites", testgen: "Write tests + references", judge: "Grade outputs", repair: "Adapt prompts" };
+    const roleName = { investigate: "Investigate the codebase", harness: "Write calls for the patched code", analyze: "Understand call sites", testgen: "Write tests + references", judge: "Grade outputs", repair: "Adapt prompts" };
     const roles = Object.entries(u.by_role || {}).sort((a, b) => b[1].cost - a[1].cost);
     const maxRole = Math.max(1e-9, ...roles.map(([, r]) => r.cost));
     return {
@@ -184,7 +211,7 @@
     const s = pickSite(state);
     const ch = [chProblem(state)];
     if (s) ch.push(chCloseup(state, s), chTests(state, s), chBakeoff(state, s));
-    ch.push(chRepair(state), chPatch(state, s), chBill(state));
+    ch.push(chRepair(state), chPatch(state, s), chRun(state), chBill(state));
     const ids = s ? CHAPTERS : CHAPTERS.filter(([id]) => !["closeup", "tests", "bakeoff"].includes(id));
     $t("#tourRail").innerHTML = ids.map(([id, label], i) => `<li><a href="#tour" data-chap="${id}"><span>${String(i + 1).padStart(2, "0")}</span>${label}</a></li>`).join("");
     body.innerHTML = `<header class="t-intro"><p class="hero-kicker"><span class="pulse-dot"></span> Judge tour · about 3 minutes</p>

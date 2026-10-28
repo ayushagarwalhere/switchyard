@@ -75,11 +75,22 @@ class TokenFactory:
         # flipped off if the endpoint rejects Nemotron's thinking switch
         self.thinking_toggle = os.environ.get("SWITCHYARD_THINKING_TOGGLE", "1") == "1"
         self.fallbacks: list[str] = []
+        # the app's original model, run on the same tests for a head-to-head (OpenAI key; billed by OpenAI)
+        bkey = config.baseline_key()
+        self.baseline = OpenAI(api_key=bkey, max_retries=3, timeout=120) if bkey else None
+        self.baseline_usage = Usage()
 
     def complete(self, model_key: str, messages: list[dict], *, role: str = "candidate", temperature: float | None = None,
                  max_tokens: int | None = None, json_mode: bool = False, reasoning: bool | None = None,
-                 extra: dict | None = None, response_format: dict | None = None) -> Completion:
-        model = config.MODELS[model_key]
+                 extra: dict | None = None, response_format: dict | None = None, tools: list[dict] | None = None) -> Completion:
+        model = config.model(model_key)
+        source = model_key.startswith(config.SOURCE_PREFIX)
+        if source and self.baseline is None:
+            return Completion("", None, 0, 0, 0.0, 0.0, model_key, error="no OPENAI_API_KEY for the baseline")
+        client = self.baseline if source else self.client
+        usage = self.baseline_usage if source else self.usage
+        if source:
+            reasoning = None  # Nemotron's thinking switch means nothing to the original provider
         with self._lock:
             if self.budget is not None and self.usage.cost >= self.budget:
                 raise BudgetExceeded(f"budget of ${self.budget:.2f} reached")
@@ -87,11 +98,14 @@ class TokenFactory:
         if temperature is not None:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
-            kwargs["max_tokens"] = max_tokens
+            # OpenAI's reasoning models (o-series, gpt-5) reject max_tokens; max_completion_tokens works on all
+            kwargs["max_completion_tokens" if source else "max_tokens"] = max_tokens
         if response_format:
             kwargs["response_format"] = response_format
         elif json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        if tools:
+            kwargs["tools"] = tools
         extra_body = dict(extra or {})
         if reasoning is not None and self.thinking_toggle:
             # Nemotron chat templates expose a thinking switch.
@@ -101,14 +115,15 @@ class TokenFactory:
         t0 = time.perf_counter()
         try:
             with self._slots:
-                resp = self.client.chat.completions.create(**kwargs)
+                resp = client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001 - surface any API error as a failed sample
             msg_e = str(e)
             if "chat_template_kwargs" in kwargs.get("extra_body", {}) and ("chat_template_kwargs" in msg_e or "enable_thinking" in msg_e or "extra" in msg_e.lower()):
                 self.thinking_toggle = False
                 self._note("endpoint rejected chat_template_kwargs.enable_thinking; continuing without the thinking switch")
                 return self.complete(model_key, messages, role=role, temperature=temperature, max_tokens=max_tokens,
-                                     json_mode=json_mode, reasoning=None, extra=extra, response_format=response_format)
+                                     json_mode=json_mode, reasoning=None, extra=extra, response_format=response_format,
+                                     tools=tools)
             if (json_mode or response_format) and "response_format" in msg_e:
                 self._note(f"{model.key}: endpoint rejected {'json_schema' if response_format else 'json_object'} response_format; falling back")
                 # endpoint rejected structured output: fall back one level (schema -> json_object -> plain)
@@ -129,10 +144,10 @@ class TokenFactory:
         tin = getattr(resp.usage, "prompt_tokens", 0) or 0
         tout = getattr(resp.usage, "completion_tokens", 0) or 0
         with self._lock:
-            cost = self.usage.add(role, model, tin, tout)
+            cost = usage.add(role, model, tin, tout)
         tool_calls = None
         if getattr(msg, "tool_calls", None):
-            tool_calls = [{"name": tc.function.name, "arguments": tc.function.arguments} for tc in msg.tool_calls]
+            tool_calls = [{"id": tc.id, "name": tc.function.name, "arguments": tc.function.arguments} for tc in msg.tool_calls]
         return Completion(text.strip(), reasoning_text, tin, tout, latency, cost, model.key, tool_calls=tool_calls)
 
     def _note(self, text: str) -> None:

@@ -23,6 +23,9 @@ switchyard = "switchyard.cli:main"
 [tool.setuptools]
 packages = ["switchyard"]
 
+[tool.setuptools.package-data]
+switchyard = ["web/*"]
+
 [tool.pytest.ini_options]
 addopts = "-q -p no:cacheprovider --basetemp=.pytest_tmp"
 testpaths = ["tests"]

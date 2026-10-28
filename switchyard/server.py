@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from . import config
 from .pipeline import RUNS_DIR, Run
 
-WEB = Path(__file__).resolve().parent.parent / "web"
+WEB = Path(__file__).resolve().parent / "web"
 DEMO_DIR = RUNS_DIR / "demo"
 PUBLIC = os.environ.get("SWITCHYARD_PUBLIC") == "1"
 RUN_CODE = os.environ.get("SWITCHYARD_RUN_CODE", "")

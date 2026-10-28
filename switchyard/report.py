@@ -33,6 +33,15 @@ def pr_body(state: dict) -> str:
             lines.append(f"| {loc} | {was} | {now} | {_pct(d.get('pass_rate'))} | {cost} |")
         else:
             lines.append(f"| {loc} | {was} | unchanged | – | kept: {d.get('reason', '')} |")
+    h2h = [x for x in sites if x["decision"].get("vs_source", {}).get("chosen_score") is not None]
+    if h2h:
+        lines += ["", "### Head-to-head with the original model",
+                  "The original model answered the same tests and was graded the same way:", "",
+                  "| Call site | Original | Score | Nemotron | Score |", "|---|---|---|---|---|"]
+        for x in h2h:
+            v, d = x["decision"]["vs_source"], x["decision"]
+            lines.append(f"| `{x['site']['file']}:{x['site']['line']}` | `{v['model']}` | {v['score']:.2f} "
+                         f"| `{config.MODELS[d['model']].id}` | {v['chosen_score']:.2f} |")
     hints = [x for x in sites if x["decision"].get("hint")]
     if hints:
         lines += ["", "### Prompt adaptations", "Nemotron Ultra adapted these prompts so a cheaper model passes; each was re-tested:"]
@@ -41,6 +50,9 @@ def pr_body(state: dict) -> str:
     lines += ["", "### Verification"]
     for c in patch.get("compile", []):
         lines.append(f"- {'✅' if c['ok'] else '❌'} `{c['file']}` {'parses and compiles' if c['ok'] else c.get('error', '')}")
+    for r in patch.get("runtime") or []:
+        icon = {"verified": "✅", "failed": "❌", "unverified": "⚠️"}.get(r["status"], "➖")
+        lines.append(f"- {icon} ran `{r.get('function')}()` from the patched code: {r.get('reason', '')}")
     if patch.get("tests"):
         t = patch["tests"]
         lines.append(f"- {'✅ project tests pass' if t.get('ok') else '❌ project tests failed'}")

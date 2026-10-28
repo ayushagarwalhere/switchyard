@@ -1,0 +1,77 @@
+name: Switchyard
+description: Move LLM calls to NVIDIA Nemotron on Nebius Token Factory with per-call tests, or guard a migration in CI.
+author: Switchyard
+branding:
+  icon: shuffle
+  color: green
+
+inputs:
+  nebius-api-key:
+    description: Nebius Token Factory API key (store it as a repository secret).
+    required: true
+  command:
+    description: "check: re-run the saved tests and fail on drift. migrate: test every LLM call and open a pull request."
+    default: check
+  path:
+    description: Folder of the app, relative to the repository root.
+    default: "."
+  run-file:
+    description: The saved run that `check` re-tests.
+    default: .switchyard/run.json
+  budget:
+    description: Max Token Factory spend in USD for this job.
+    default: ""
+  tests:
+    description: "migrate: tests per call site."
+    default: "8"
+  tavily-api-key:
+    description: "migrate: optional Tavily key for realistic test inputs."
+    default: ""
+  python-version:
+    description: Python used to run Switchyard.
+    default: "3.12"
+
+outputs:
+  pr-url:
+    description: "migrate: the pull request that was opened."
+    value: ${{ steps.migrate.outputs.pr-url }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Switchyard
+      shell: bash
+      run: python -m pip install --quiet "${{ github.action_path }}"
+
+    - name: Check the migrated calls
+      if: inputs.command == 'check'
+      shell: bash
+      env:
+        NEBIUS_API_KEY: ${{ inputs.nebius-api-key }}
+        RUN_FILE: ${{ inputs.run-file }}
+        APP_PATH: ${{ inputs.path }}
+        BUDGET: ${{ inputs.budget || '0.50' }}
+      run: switchyard check "$RUN_FILE" --repo "$APP_PATH" --budget "$BUDGET"
+
+    - name: Migrate and open a pull request
+      id: migrate
+      if: inputs.command == 'migrate'
+      shell: bash
+      env:
+        NEBIUS_API_KEY: ${{ inputs.nebius-api-key }}
+        TAVILY_API_KEY: ${{ inputs.tavily-api-key }}
+        GH_TOKEN: ${{ github.token }}
+        APP_PATH: ${{ inputs.path }}
+        BUDGET: ${{ inputs.budget || '2' }}
+        TESTS: ${{ inputs.tests }}
+      run: |
+        git config user.name "switchyard[bot]"
+        git config user.email "switchyard-bot@users.noreply.github.com"
+        tavily=""; [ -z "$TAVILY_API_KEY" ] && tavily="--no-tavily"
+        switchyard run "$APP_PATH" --yes --pr --budget "$BUDGET" --tests "$TESTS" $tavily | tee "$RUNNER_TEMP/switchyard.log"
+        url=$(grep -o "Pull request: https://[^ ]*" "$RUNNER_TEMP/switchyard.log" | sed 's/Pull request: //' || true)
+        echo "pr-url=$url" >> "$GITHUB_OUTPUT"

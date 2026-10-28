@@ -151,6 +151,17 @@ button.primary:disabled { opacity: .45; cursor: not-allowed; }
 .why.keep { border-left: 3px solid var(--warn); }
 .why.go { border-left: 3px solid var(--accent); }
 .hint { font-size: .8rem; border: 1px dashed var(--ultra); border-radius: 9px; padding: 8px 10px; margin-top: 8px; }
+.runtime { font-size: .8rem; border-radius: 9px; padding: 8px 10px; margin-top: 8px; background: var(--panel-2); border-left: 3px solid var(--muted); }
+.runtime.ok { border-left-color: var(--accent); }
+.runtime.ok b { color: var(--accent); }
+.runtime.bad { border-left-color: var(--bad, #ef4444); }
+.runtime.warn { border-left-color: var(--warn); }
+.runtime code { font-size: .78rem; }
+.rt-row { border-top: 1px solid var(--line, rgba(127,127,127,.2)); padding: 8px 0; }
+.rt-row summary { cursor: pointer; font-size: .85rem; }
+.rt-body { padding: 8px 0 0 18px; }
+.rt-body pre { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; overflow: auto; margin: 6px 0; white-space: pre-wrap; }
+.warn { color: var(--warn); }
 .hint b { color: var(--ultra); }
 
 table.models { width: 100%; border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; }
@@ -257,3 +268,10 @@ table.models tr.chosen td { background: var(--accent-soft); }
 }
 .site-b > div { min-width: 0; overflow-x: auto; }
 table.models td:first-child .chip { white-space: normal; text-align: left; }
+.inv { font-size: .8rem; margin-top: 8px; background: var(--panel-2); border-radius: 9px; padding: 8px 10px; }
+.inv summary { cursor: pointer; }
+.inv .kv { margin-top: 6px; }
+.inv-steps { margin-top: 6px; line-height: 1.6; }
+.inv code { font-size: .76rem; }
+.chip.m-source { color: var(--muted); border-color: var(--muted); background: transparent; }
+.h2h { margin-top: 8px; font-size: .8rem; }

@@ -15,7 +15,7 @@ let CFG = null;
 let current = null;      // run id on screen
 let es = null;           // EventSource
 let refetchTimer = null;
-const STEPS = [["scan", "Scan"], ["analyze", "Understand"], ["testgen", "Write tests"], ["eval", "Evaluate"], ["repair", "Repair"], ["decision", "Decide"], ["patch", "Patch"]];
+const STEPS = [["scan", "Scan"], ["analyze", "Understand"], ["testgen", "Write tests"], ["eval", "Evaluate"], ["repair", "Repair"], ["decision", "Decide"], ["patch", "Patch"], ["runtime", "Run code"]];
 const MODEL_LABEL = { lightning: "Lightning", super: "Super", ultra: "Ultra" };
 
 /* theme ----------------------------------------------------------------- */
@@ -151,13 +151,16 @@ function fold(state) {
     if (ev.kind === "scan") for (const h of ev.sites) Object.assign(ensure(h.id), { header: h });
     else if (ev.kind === "site") { ensure(ev.id).phase = ev.phase; phase = ev.phase.split(":")[0]; }
     else if (ev.kind === "analysis") ensure(ev.id).analysis = ev.analysis;
+    else if (ev.kind === "investigation") ensure(ev.id).investigation = ev;
     else if (ev.kind === "sources") Object.assign(ensure(ev.id), { sources: ev.sources, query: ev.query });
     else if (ev.kind === "cases") ensure(ev.id).cases = ev.cases;
     else if (ev.kind === "result") { const s = ensure(ev.id); (s.results[ev.model] ||= {})[ev.case] = ev.passed; }
     else if (ev.kind === "model") ensure(ev.id).models[ev.model] = ev;
     else if (ev.kind === "decision") Object.assign(ensure(ev.id), { decision: ev.decision, savings: ev.savings, phase: "done" });
     else if (ev.kind === "site_error") Object.assign(ensure(ev.id), { error: ev.error, phase: "error" });
+    else if (ev.kind === "runtime") ensure(ev.id).runtime = ev;
     else if (ev.kind === "step" && ev.step === "rewrite") phase = "patch";
+    else if (ev.kind === "step" && ev.step === "runtime") phase = "runtime";
     else if (ev.kind === "done") phase = "done";
   }
   for (const rec of state.sites || []) {
@@ -169,12 +172,14 @@ function fold(state) {
     if (rec.savings) s.savings = rec.savings;
     if (rec.error) s.error = rec.error;
     if (rec.sources) s.sources = rec.sources;
+    if (rec.investigation) s.investigation = rec.investigation;
     for (const [mk, e] of Object.entries(rec.evals || {})) {
       s.models[mk] = e;
       s.results[mk] = Object.fromEntries(e.results.map((r) => [r.case, r.passed]));
     }
     if (rec.cases) s.cases = rec.cases;
   }
+  for (const r of state.patch?.runtime || []) ensure(r.id).runtime = r;
   return { sites: [...sites.values()], phase };
 }
 
@@ -216,7 +221,8 @@ function render(state) {
 
   // steps
   const order = STEPS.map((s) => s[0]);
-  const idx = state.status === "running" ? Math.max(0, order.indexOf(vm.phase === "eval" ? "eval" : vm.phase)) : order.length;
+  const ph = vm.phase === "investigate" ? "analyze" : vm.phase;
+  const idx = state.status === "running" ? Math.max(0, order.indexOf(ph)) : order.length;
   k("steps").innerHTML = STEPS.map(([key, label], i) =>
     `<li class="${i < idx ? "on" : i === idx && running ? "active" : ""}">${label}</li>`).join("");
 
@@ -235,6 +241,7 @@ const stat = (v, l, hl) => `<div class="stat${hl ? " hl" : ""}"><div class="v">$
 
 function chip(mk) {
   if (!mk) return `<span class="chip m-keep">keep original</span>`;
+  if (mk.startsWith("source:")) return `<span class="chip m-source" title="The app's current model, run on the same tests for comparison">${esc(mk.slice(7))} · original</span>`;
   const base = mk.split("+")[0];
   return `<span class="chip m-${base}">Nemotron ${MODEL_LABEL[base] || base}${mk.includes("+") ? " + adapted prompt" : ""}</span>`;
 }
@@ -250,6 +257,7 @@ function siteCard(s, state) {
   const keys = [...(CFG?.models || []).map((m) => m.key)];
   const rows = [];
   for (const mk of keys) for (const v of [mk, `${mk}+hint`]) if (s.models[v] || (v === mk && a)) rows.push(v);
+  for (const k of Object.keys(s.models)) if (k.startsWith("source:")) rows.push(k);
   const nCases = s.cases?.length || 0;
   const table = rows.length ? `<table class="models"><thead><tr><th>Model</th><th>Pass rate</th><th>Score</th><th>p50</th><th title="Token Factory cost for 1,000 requests at the measured token counts">Per 1k calls</th><th>Cases</th></tr></thead><tbody>${rows.map((mk) => {
     const m = s.models[mk];
@@ -269,21 +277,81 @@ function siteCard(s, state) {
       <td>${perCall != null ? usd(perCall * 1000, 3) : ""}</td><td><div class="dots">${dots}</div></td></tr>`;
   }).join("")}</tbody></table>` : "";
   const why = d ? `<div class="why ${d.action === "migrate" ? "go" : "keep"}">${esc(d.reason)}${s.savings?.saving_pct ? ` · <b>${s.savings.saving_pct}% cheaper</b> than ${esc(s.savings.source_model || "the original")}` : ""}</div>` : "";
+  const vs = d?.vs_source;
+  const h2h = vs && vs.chosen_score != null ? `<div class="kv h2h">Head-to-head on the same tests: ${chip(d.choice)} <b>${vs.chosen_score.toFixed(2)}</b> vs ${chip(`source:${vs.model}`)} <b>${vs.score.toFixed(2)}</b> <span class="${vs.delta >= -0.02 ? "ok" : "warn"}">(${vs.delta >= 0 ? "+" : ""}${vs.delta.toFixed(2)})</span></div>`
+    : vs?.errors ? `<div class="kv h2h">The original <code>${esc(vs.model)}</code> couldn't be run on ${vs.errors} test${vs.errors === 1 ? "" : "s"} (API error), so there's no head-to-head.</div>`
+    : vs ? `<div class="kv h2h">The original <code>${esc(vs.model)}</code> scored <b>${vs.score.toFixed(2)}</b> on the same tests; no Nemotron model came close enough.</div>` : "";
   const hint = d?.hint ? `<div class="hint"><b>Prompt adapted by Ultra:</b> ${esc(d.hint)}</div>` : "";
   const src = s.sources?.length ? `<div class="kv small">Real inputs from <span class="chip tav">Tavily</span>: ${s.sources.slice(0, 3).map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc((x.title || x.url).slice(0, 48))}</a>`).join(", ")}</div>` : "";
   const desc = a ? `<div class="desc"><p>${esc(a.summary)}</p>
     <div class="kv">Task <b>${esc(a.task_type)}</b> · output <b>${esc(a.output?.format || "text")}</b>${a.output?.labels?.length ? ` (${esc(a.output.labels.join(", "))})` : ""}${a.output?.json_keys?.length ? ` · keys <b>${esc(a.output.json_keys.join(", "))}</b>` : ""}</div>
     ${a.parsing ? `<div class="kv">Consumed by: ${esc(a.parsing)}</div>` : ""}
-    ${src}${why}${hint}${s.error ? `<div class="why keep bad">${esc(s.error)}</div>` : ""}</div>` : `<div class="desc pending"><span class="spin"></span> Reading the call site…</div>`;
+    ${investigationBlock(s.investigation)}
+    ${src}${why}${h2h}${hint}${runtimeLine(s.runtime)}${s.error ? `<div class="why keep bad">${esc(s.error)}</div>` : ""}</div>` : `<div class="desc pending"><span class="spin"></span> Reading the call site…</div>`;
   const caseList = s.cases?.length ? `<details class="cases"><summary>${s.cases.length} tests written by Ultra</summary><div class="case-list">${s.cases.map((c) =>
     `<div class="case-row" data-site="${esc(s.id)}" data-case="${c.id}"><span class="muted">#${c.id}</span><span>${esc(c.name)} <span class="kind">${esc(c.kind === "tricky" ? "tricky" : "")}</span><br><span class="muted small">${esc(c.why || "")}</span></span><span>${rows.map((mk) => { const v = (s.results[mk] || {})[c.id]; return `<span class="dot ${v === true ? "p" : v === false ? "f" : ""}" style="display:inline-block" title="${esc(mk)}"></span>`; }).join(" ")}</span></div>`).join("")}</div></details>` : "";
   return `<article class="site"><div class="site-h"><div><span class="fn">${esc(h.function || "(module)")}</span> <span class="loc muted">${loc}</span></div>${route}</div>
     <div class="site-b">${desc}<div>${table}</div></div>${caseList}</article>`;
 }
 
+function toolStep(st) {
+  const a = st.args || {};
+  if (st.tool === "search") return `searched <code>${esc(String(a.pattern || "").slice(0, 40))}</code>`;
+  if (st.tool === "read_file") return `read <code>${esc(a.path)}${a.start ? `:${a.start}${a.end ? `-${a.end}` : ""}` : ""}</code>`;
+  if (st.tool === "list_files") return "listed the files";
+  return esc(st.tool);
+}
+
+function investigationBlock(inv) {
+  if (!inv || !(inv.downstream || inv.critical?.length || inv.steps?.length)) return "";
+  const steps = inv.steps?.length ? `<div class="small muted inv-steps">${inv.steps.map(toolStep).join(" → ")}</div>` : "";
+  const who = inv.mode === "agent" ? `${inv.steps?.length || 0} tool call${inv.steps?.length === 1 ? "" : "s"}` : "static search";
+  return `<details class="inv"><summary><span class="chip m-super">Super</span> investigated the codebase <span class="muted small">· ${who}${inv.callers?.length ? ` · ${inv.callers.length} caller${inv.callers.length === 1 ? "" : "s"}` : ""}</span></summary>
+    ${steps}
+    ${inv.downstream ? `<div class="kv">What the app does with it: ${esc(inv.downstream)}</div>` : ""}
+    ${inv.critical?.length ? `<div class="kv">Logic depends on: ${inv.critical.map((c) => `<b>${esc(c)}</b>`).join(" · ")}</div>` : ""}
+    ${inv.input_examples?.length ? `<div class="kv">Real inputs found: ${inv.input_examples.slice(0, 3).map((x) => `<code>${esc(x.slice(0, 80))}</code>`).join(" ")}</div>` : ""}
+  </details>`;
+}
+
+const RT = {
+  verified: ["ok", "✓", "Ran the patched code"],
+  failed: ["bad", "✗", "Patched code failed"],
+  unverified: ["warn", "!", "Ran, not confirmed"],
+  skipped: ["muted", "–", "Not run"],
+};
+
+function runtimeLine(r) {
+  if (!r) return "";
+  const [cls, icon, label] = RT[r.status] || RT.skipped;
+  const extra = r.status === "verified" ? ` · returned <code>${esc(r.returned)}</code> in ${r.seconds}s${r.how === "agent" ? ` · call written by <span class="chip m-super">Super</span>${r.attempts > 1 ? ` (fixed after ${r.attempts - 1} failed attempt${r.attempts > 2 ? "s" : ""})` : ""}` : ""}`
+    : ` · ${esc(r.reason)}`;
+  return `<div class="runtime ${cls}"><b>${icon} ${label}</b>${extra}</div>`;
+}
+
+function runtimeView(state) {
+  const rt = state.patch?.runtime;
+  if (!rt) {
+    const off = state.settings && state.settings.execute === false;
+    return state.patch ? `<div class="card"><h3>Ran the patched code</h3><p class="small muted">${off ? "Code execution was off for this run (no API key, <code>--no-exec</code>, or the public demo)." : "Not run."}</p></div>` : "";
+  }
+  const n = rt.filter((r) => r.status === "verified").length;
+  const rows = rt.map((r) => {
+    const [cls, icon] = RT[r.status] || RT.skipped;
+    const reqs = (r.requests || []).map((q) => `<div class="mono small">POST ${esc(q.url)} · model <b>${esc(q.model || "?")}</b></div>`).join("");
+    return `<details class="rt-row"><summary><span class="${cls}">${icon}</span> <code>${esc(r.file)}:${r.line}</code> <b>${esc(r.function || "")}</b> <span class="muted small">${esc(r.reason || "")}</span></summary>
+      <div class="rt-body">${r.case ? `<div class="small muted">Test case: ${esc(r.case)} · call ${r.how === "agent" ? "written by Nemotron Super" : "built from the signature"}${r.attempts ? ` · ${r.attempts} attempt${r.attempts > 1 ? "s" : ""}` : ""}</div>` : ""}
+      ${r.code ? `<pre class="mono small">${esc(r.code)}</pre>` : ""}${reqs}
+      ${r.preview ? `<div class="small"><b>Returned</b></div><pre class="mono small">${esc(r.preview)}</pre>` : ""}</div></details>`;
+  }).join("");
+  return `<div class="card" style="margin-bottom:14px"><h3>Ran the patched code · ${n}/${rt.length} verified</h3>
+    <p class="small muted">Switchyard loaded each migrated module (definitions only, no demo code), called the switched function with a test case, and recorded every HTTP request. Verified = the function returned normally and its request went to Token Factory with the chosen model.</p>${rows}</div>`;
+}
+
 function phaseLabel(p) {
   if (!p) return "Queued";
   if (p === "queued") return "Queued";
+  if (p === "investigate") return "Super is reading the codebase…";
   if (p === "analyze") return "Understanding the call…";
   if (p === "testgen") return "Ultra is writing tests…";
   if (p.startsWith("eval")) return "Testing models…";
@@ -324,6 +392,7 @@ function patchView(state) {
       <p class="small muted">Run it from the folder Switchyard scanned. Review the diff first; every model sits behind an env var, so rolling back one call is a one-line change.</p></div>` : ""}
     ${manual}${notes}
   </div>
+  ${runtimeView(state)}
   ${pr}
   ${routes ? `<div class="card" style="margin-bottom:14px"><table class="simple"><thead><tr><th>Call site</th><th>Was</th><th>Now</th><th>Override</th></tr></thead><tbody>${routes}</tbody></table></div>` : ""}
   <div class="diff-wrap"><button class="copy-btn diff-copy" data-copy="diff">Copy patch</button><div class="diff">${diffHtml(p.diff || "")}</div></div>`;
@@ -497,7 +566,7 @@ function bindCalc(view, state, vm) {
 function spendView(state) {
   const u = state.usage;
   if (!u) return `<p class="muted">Spend appears when the run finishes.</p>`;
-  const roleName = { analyze: "Understand call sites", testgen: "Write tests + reference answers", judge: "Grade outputs", repair: "Adapt prompts" };
+  const roleName = { investigate: "Investigate the codebase", harness: "Write calls for the patched code", analyze: "Understand call sites", testgen: "Write tests + reference answers", judge: "Grade outputs", repair: "Adapt prompts" };
   const rows = Object.entries(u.by_role).sort((a, b) => b[1].cost - a[1].cost).map(([role, r]) => {
     const label = role.startsWith("candidate:") ? `Candidate runs: ${MODEL_LABEL[role.split(":")[1]] || role}` : roleName[role] || role;
     return `<tr><td>${esc(label)}</td><td>${chip(r.model)}</td><td>${r.calls}</td><td>${r.tokens_in.toLocaleString()}</td><td>${r.tokens_out.toLocaleString()}</td><td>${usd(r.cost, 4)}</td></tr>`;

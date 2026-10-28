@@ -8,7 +8,8 @@ The public demo serves recorded runs to everyone and allows live runs only with 
 | `SWITCHYARD_PUBLIC=1` | public mode: recorded runs open, live runs need the code, GitHub URLs only |
 | `SWITCHYARD_RUN_CODE` | access code for live runs (share it with judges in the submission) |
 | `SWITCHYARD_RUN_BUDGET` | max USD per live run in public mode (default 0.50) |
-| `TAVILY_API_KEY`, `LANGSMITH_API_KEY` | optional |
+| `TAVILY_API_KEY`, `LANGSMITH_API_KEY`, `OPENAI_API_KEY` | optional (OpenAI = original-model baseline) |
+| `SWITCHYARD_EXEC` | run patched code during live runs. Off by default in public mode, because live runs clone arbitrary GitHub repos; turn it on only if the container is disposable |
 
 Recorded runs live in `runs/demo/<id>/run.json` and ship with the image. To promote a run:
 

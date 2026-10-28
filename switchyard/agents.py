@@ -10,13 +10,14 @@ from .llm import TokenFactory
 PLACEHOLDER = re.compile(r"\{\{([^{}]+)\}\}")
 
 
-def _site_brief(site: dict) -> str:
+def _site_brief(site: dict, context: str = "") -> str:
     msgs = "\n".join(f"[{m['role']}]\n{m['content']}" for m in site["messages"])
     return (f"File: {site['file']}:{site['line']}  function: {site.get('function')}\n"
             f"SDK call: {site['method']}  original model: {site.get('model') or site.get('model_expr')}\n"
             f"Params: {json.dumps(site.get('params', {}), default=str)}\n"
             f"Prompt template ({{{{var}}}} = runtime value):\n{msgs}\n\n"
-            f"Enclosing code:\n```python\n{site['context'][:6000]}\n```")
+            f"Enclosing code:\n```python\n{site['context'][:6000]}\n```"
+            + (f"\n\nWhat an investigation of the rest of the codebase found:\n{context}" if context else ""))
 
 
 ANALYZE_SYS = """You are Switchyard's code analyst. You read one LLM call site from an application and describe the task it performs precisely enough that another engineer could write tests for it.
@@ -33,10 +34,10 @@ Reply with JSON only:
 }"""
 
 
-def analyze(tf: TokenFactory, site: dict) -> dict:
+def analyze(tf: TokenFactory, site: dict, context: str = "") -> dict:
     data, _ = tf.json(config.ROLE_ANALYZE, [
         {"role": "system", "content": ANALYZE_SYS},
-        {"role": "user", "content": _site_brief(site)},
+        {"role": "user", "content": _site_brief(site, context)},
     ], role="analyze", temperature=0.1, reasoning=False)
     if isinstance(data, list):  # some models wrap the object in a list
         data = next((x for x in data if isinstance(x, dict)), {})
@@ -57,15 +58,17 @@ Rules:
 - "expect" holds machine-checkable facts when the task has them: {"label": "..."} for label tasks, {"fields": {"key": value}} for JSON extraction (only fields with one unambiguous correct value), {} otherwise.
 - If the call has an output_schema (structured output), "reference" must be one JSON object valid against that schema, and "expect.fields" should hold the fields with a single correct value (enums, booleans, request types, flags); never put free text or confidence scores in expect.
 - If source material is provided, base inputs on it.
+- If the codebase investigation found real inputs, include them (or close variants), and cover the fields the app logic depends on in "expect".
 Reply with JSON only: {"cases": [{"name": "short case name", "kind": "typical|tricky", "inputs": {"var": "value"}, "reference": "...", "expect": {}, "why": "what this case probes"}]}"""
 
 
-def generate_tests(tf: TokenFactory, site: dict, analysis: dict, n: int = 8, sources: list[dict] | None = None) -> list[dict]:
+def generate_tests(tf: TokenFactory, site: dict, analysis: dict, n: int = 8, sources: list[dict] | None = None,
+                   context: str = "") -> list[dict]:
     src_txt = ""
     if sources:
         src_txt = "\n\nSource material from the web (use it to make inputs realistic; do not copy URLs into outputs):\n" + \
             "\n---\n".join(f"{s.get('title', '')}\n{(s.get('content') or '')[:1200]}" for s in sources[:5])
-    user = (f"{_site_brief(site)}\n\nTask analysis:\n{json.dumps(analysis, indent=2)}\n\n"
+    user = (f"{_site_brief(site, context)}\n\nTask analysis:\n{json.dumps(analysis, indent=2)}\n\n"
             f"Template variables: {site['variables']}\nWrite {n} cases.{src_txt}")
     data, _ = tf.json(config.ROLE_TESTGEN, [
         {"role": "system", "content": TESTGEN_SYS},

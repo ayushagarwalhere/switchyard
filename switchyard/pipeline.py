@@ -14,17 +14,62 @@ import fnmatch
 import os
 import threading
 
-from . import agents, config, evaluate, report, rewrite, scanner, traces
+from . import agents, config, evaluate, investigate, report, rewrite, runcheck, scanner, traces
 from .llm import BudgetExceeded, TokenFactory
 
-RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
+RUNS_DIR = config.runs_dir()
+
+
+def git_checkout(path: str | Path) -> dict | None:
+    """If `path` is inside a git work tree: its root, the folder offset, HEAD and whether it's dirty."""
+    path = Path(path).resolve()
+    git = lambda *a: subprocess.run(["git", "-C", str(path), *a], capture_output=True, text=True, timeout=30)
+    try:
+        top = git("rev-parse", "--show-toplevel")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if top.returncode != 0 or not top.stdout.strip():
+        return None
+    root = Path(top.stdout.strip()).resolve()
+    try:
+        sub = path.relative_to(root).as_posix()
+    except ValueError:
+        return None
+    return {"root": str(root), "subdir": "" if sub == "." else sub,
+            "commit": git("rev-parse", "--short", "HEAD").stdout.strip(),
+            "branch": git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip(),
+            "dirty": bool(git("status", "--porcelain", "--", ".").stdout.strip())}
+
+
+# Rough token counts per call site, from test runs. Used only for the up-front estimate.
+_EST = {  # role: (model key, calls per site, tokens in, tokens out)
+    "investigate": ("super", 5, 3500, 350),
+    "analyze": ("super", 1, 2500, 900),
+    "testgen": ("ultra", 1, 3500, 7000),
+    "repair": ("ultra", 0.5, 5000, 1500),
+}
+
+
+def estimate_cost(calls: list[dict], tests: int) -> float:
+    """A rough upper-middle estimate of Token Factory spend for a run (USD)."""
+    m = config.MODELS
+    total = 0.0
+    for site in calls:
+        prompt = sum(len(str(x.get("content", ""))) for x in site.get("messages") or []) // 4 + 300
+        for key, n, tin, tout in _EST.values():
+            total += n * m[key].cost(tin, tout)
+        for cand in config.CANDIDATES:
+            total += tests * cand.cost(prompt, 400)
+        total += tests * len(config.CANDIDATES) * m[config.ROLE_JUDGE].cost(prompt + 900, 200)
+        total += m[config.ROLE_ANALYZE].cost(4000, 600)   # runtime harness, when it's needed
+    return round(total, 2)
 
 
 class Run:
     def __init__(self, source: str, *, tests: int = 8, target: float = 0.85, budget: float = 2.0,
                  use_tavily: bool = True, max_sites: int = 12, emit=None, run_id: str | None = None,
                  include: list[str] | None = None, exclude: list[str] | None = None,
-                 traces_path: str | None = None, run_tests: bool = False):
+                 traces_path: str | None = None, run_tests: bool = False, execute: bool | None = None):
         self.id = run_id or time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
         self.source = source
         self.tests = tests
@@ -36,6 +81,8 @@ class Run:
         self.exclude = exclude or []
         self.traces_path = traces_path
         self.run_tests = run_tests
+        # run the patched code for real (needs a key; off on the public demo unless allowed)
+        self.execute = (runcheck.enabled() and bool(config.api_key())) if execute is None else execute
         self._save_lock = threading.Lock()
         self._last_save = 0.0
         self.dir = RUNS_DIR / self.id
@@ -44,7 +91,7 @@ class Run:
         self.state: dict = {"id": self.id, "source": source, "status": "running", "started": time.time(),
                             "settings": {"tests": tests, "target": target, "budget": budget, "tavily": use_tavily,
                                          "include": self.include, "exclude": self.exclude,
-                                         "traces": bool(traces_path), "run_tests": run_tests},
+                                         "traces": bool(traces_path), "run_tests": run_tests, "execute": self.execute},
                             "sites": [], "events": []}
 
     # -- events -------------------------------------------------------------
@@ -81,6 +128,8 @@ class Run:
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
             commit = subprocess.run(["git", "-C", str(clone_dir), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
             self.state["commit"] = commit
+            if sub:
+                self.state["source_subdir"] = sub
             base = (clone_dir / sub).resolve() if sub else clone_dir
             if not str(base).startswith(str(clone_dir.resolve())) or not base.is_dir():
                 raise FileNotFoundError(f"{sub} not found in {url}")
@@ -93,6 +142,11 @@ class Run:
             if not path.is_dir():
                 raise FileNotFoundError(f"{src} is not a directory or git URL")
             self.emit("step", step="copy", message=f"Copying {path.name}")
+            co = git_checkout(path)
+            if co:
+                # remembered so `switchyard apply` needs no arguments
+                self.state["checkout"] = co
+                self.state["commit"] = co["commit"]
             shutil.copytree(path, dest, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns(".git", ".venv", "venv", "node_modules", "__pycache__"))
         return dest
@@ -102,6 +156,7 @@ class Run:
         try:
             tf = TokenFactory(budget_usd=self.budget, tracer=_tracer())
             repo = self.fetch()
+            self.repo_dir = repo
             self.emit("step", step="scan", message="Scanning for LLM calls")
             scan = scanner.scan_repo(repo)
             calls = [c for c in scan["calls"] if self._wanted(c["file"])][: self.max_sites]
@@ -123,6 +178,10 @@ class Run:
             patch = rewrite.apply(repo, self.dir / "migrated", scan, self.state["sites"], run_tests=self.run_tests)
             self.state["patch"] = patch
             self.emit("patch", **{k: v for k, v in patch.items() if k != "diff"})
+            if self.execute and patch.get("changed") and patch.get("ok"):
+                self.emit("step", step="runtime", message="Running the migrated code against Token Factory")
+                patch["runtime"] = runcheck.verify(tf, self.dir / "migrated", self.state["sites"], patch.get("manual"),
+                                                   emit=lambda r: self.emit("runtime", **r))
             self.state["summary"] = summarize_run(self.state["sites"])
             self.state["status"] = "done"
             self.state["pr_body"] = report.pr_body(self.state)
@@ -136,6 +195,8 @@ class Run:
         finally:
             if tf is not None:
                 self.state["usage"] = tf.usage.to_dict()
+                if getattr(tf, "baseline_usage", None) and tf.baseline_usage.calls:
+                    self.state["baseline_usage"] = tf.baseline_usage.to_dict()
                 if tf.fallbacks:
                     self.state["notes"] = tf.fallbacks
             self.state["finished"] = time.time()
@@ -152,8 +213,14 @@ class Run:
         sid = site["id"]
         out: dict = {"site": site, "status": "running"}
         try:
+            self.emit("site", id=sid, phase="investigate")
+            inv = investigate.investigate(tf, self.repo_dir, site)
+            out["investigation"] = inv
+            self.emit("investigation", id=sid, mode=inv["mode"], steps=inv["steps"], callers=inv["callers"],
+                      downstream=inv["downstream"], critical=inv["critical"], input_examples=inv["input_examples"])
+            ctx = investigate.as_context(inv)
             self.emit("site", id=sid, phase="analyze")
-            analysis = agents.analyze(tf, site)
+            analysis = agents.analyze(tf, site, context=ctx)
             out["analysis"] = analysis
             self.emit("analysis", id=sid, analysis=analysis)
 
@@ -172,7 +239,7 @@ class Run:
                 self.emit("site", id=sid, phase="testgen")
                 # a prompt with no runtime values only needs a few samples (it checks consistency)
                 want = self.tests - len(cases) if site["variables"] else max(0, min(3, self.tests) - len(cases))
-                gen = agents.generate_tests(tf, site, analysis, n=want, sources=sources) if want else []
+                gen = agents.generate_tests(tf, site, analysis, n=want, sources=sources, context=ctx) if want else []
                 for c in gen:
                     c["id"] = len(cases) + 1
                     cases.append(c)
@@ -189,8 +256,12 @@ class Run:
                 self.emit("model", id=sid, model=mk, **_brief(res))
                 return mk, res
 
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                for mk, res in pool.map(run_model, [m.key for m in config.CANDIDATES]):
+            keys = [m.key for m in config.CANDIDATES]
+            source_key = baseline_key(tf, site)
+            if source_key:
+                keys.append(source_key)  # the original model on the same tests: a baseline, never a candidate
+            with ThreadPoolExecutor(max_workers=len(keys)) as pool:
+                for mk, res in pool.map(run_model, keys):
                     evals[mk] = res
             out["evals"] = evals
 
@@ -209,6 +280,8 @@ class Run:
                     evals[f"{mk}+hint"] = res
                     self.emit("model", id=sid, model=f"{mk}+hint", **_brief(res))
                     decision = decide(evals, self.target)
+            if source_key:
+                decision["vs_source"] = head_to_head(evals, decision, source_key)
             out["decision"] = decision
             out["savings"] = savings(site, evals, decision)
             out["status"] = "done"
@@ -246,6 +319,26 @@ def _write_atomic(path: Path, data: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def baseline_key(tf, site: dict) -> str | None:
+    """`source:<model>` when the original model can be run for comparison (OpenAI SDK, literal model, key set)."""
+    if getattr(tf, "baseline", None) is None or not site["sdk"].startswith("openai") or site["sdk"] == "openai-legacy":
+        return None
+    return f"{config.SOURCE_PREFIX}{site['model']}" if site.get("model") else None
+
+
+def head_to_head(evals: dict, decision: dict, source_key: str) -> dict:
+    src = evals[source_key]
+    out = {"model": source_key[len(config.SOURCE_PREFIX):], "pass_rate": src["pass_rate"], "score": src["score"],
+           "errors": src["errors"]}
+    # an errored call scores 0: with errors (bad key, unknown model, unsupported param) the
+    # comparison would flatter Nemotron, so it isn't reported as a head-to-head
+    if decision.get("choice") in evals and not src["errors"]:
+        mine = evals[decision["choice"]]
+        out.update(chosen_pass_rate=mine["pass_rate"], chosen_score=mine["score"],
+                   delta=round(mine["score"] - src["score"], 3))
+    return out
+
+
 def _site_header(c: dict) -> dict:
     return {"id": c["id"], "file": c["file"], "line": c["line"], "function": c["function"],
             "model": c["model"] or c["model_expr"], "sdk": c["sdk"], "variables": c["variables"]}
@@ -259,7 +352,9 @@ def decide(evals: dict[str, dict], target: float) -> dict:
     """Cheapest model (optionally with an adapted prompt) that clears the bar.
 
     The bar: pass rate >= target AND mean score within 0.05 of the best model tested,
-    so a cheap model never wins just by squeaking past a low bar.
+    so a cheap model never wins just by squeaking past a low bar. When the app's original
+    model was run on the same tests (`source:<id>`), it counts toward "best": a switch must
+    be about as good as what the app uses today. The original is never chosen itself.
     """
     order = []
     for m in config.CANDIDATES:
@@ -267,7 +362,10 @@ def decide(evals: dict[str, dict], target: float) -> dict:
             if key in evals:
                 order.append((m.tier, variant, key, evals[key]))
     order.sort(key=lambda x: (x[0], x[1]))
-    best_score = max((e["score"] for *_, e in order), default=0)
+    # a baseline with a stray failed request (e.g. one 429) still counts; a mostly broken one doesn't
+    sources = [e for k, e in evals.items() if k.startswith(config.SOURCE_PREFIX)
+               and e.get("errors", 0) <= len(e.get("results") or []) // 4]
+    best_score = max([e["score"] for *_, e in order] + [e["score"] for e in sources], default=0)
     tried_repair = any(v == 1 for _t, v, _k, _e in order)
     out = None
     for tier, _variant, key, e in order:

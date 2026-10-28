@@ -20,6 +20,7 @@ CALL_PATTERNS: list[tuple[tuple[str, ...], str]] = [  # longest first: receiver 
     (("chat", "completions", "parse"), "openai"),
     (("ChatCompletion", "create"), "openai-legacy"),
     (("responses", "create"), "openai-responses"),
+    (("responses", "parse"), "openai-responses"),
     (("messages", "create"), "anthropic"),
 ]
 CLIENT_CTORS = {"OpenAI": "openai", "AsyncOpenAI": "openai", "AzureOpenAI": "openai-azure",
@@ -80,12 +81,12 @@ def _attr_chain(node: ast.AST) -> list[str]:
     return list(reversed(parts))
 
 
-def _match_call(node: ast.Call) -> tuple[str, str] | None:
+def _match_call(node: ast.Call, anthropic_names: frozenset = frozenset()) -> tuple[str, str] | None:
     chain = _attr_chain(node.func)
     for pattern, sdk in CALL_PATTERNS:
         if tuple(chain[-len(pattern):]) == pattern:
             # `messages.create` is common in non-LLM code; require an anthropic-ish receiver
-            if sdk == "anthropic" and not _looks_anthropic(chain):
+            if sdk == "anthropic" and not (_looks_anthropic(chain) or ".".join(chain[:-2]) in anthropic_names):
                 continue
             return sdk, ".".join(pattern)
     return None
@@ -93,7 +94,19 @@ def _match_call(node: ast.Call) -> tuple[str, str] | None:
 
 def _looks_anthropic(chain: list[str]) -> bool:
     head = ".".join(chain[:-2]).lower()
-    return any(k in head for k in ("anthropic", "claude", "client", "llm", "beta"))
+    return any(k in head for k in ("anthropic", "claude", "client", "llm", "beta", "haiku", "sonnet", "opus"))
+
+
+def _anthropic_names(tree: ast.Module) -> frozenset:
+    """Names assigned from Anthropic()/AsyncAnthropic() anywhere in the file (`haiku = Anthropic()`, `self.ai = ...`)."""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Call):
+            ctor = _attr_chain(node.value.func)
+            if ctor and ctor[-1] in ("Anthropic", "AsyncAnthropic", "AnthropicBedrock", "AnthropicVertex"):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                names.update(".".join(_attr_chain(tg)) for tg in targets if isinstance(tg, (ast.Name, ast.Attribute)))
+    return frozenset(names)
 
 
 class _Resolver:
@@ -175,9 +188,27 @@ class _Resolver:
             return None
         if isinstance(node, ast.Name) and node.id in scope:
             return self.messages(scope[node.id], scope, depth + 1)
+        # [system] + history,  list(base) + [...]
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            parts = []
+            for side in (node.left, node.right):
+                m = self.messages(side, scope, depth + 1)
+                if m is None:
+                    m = [{"role": "history", "content": "{{" + _slot_name(ast.get_source_segment(self.src, side) or "history") + "}}"}]
+                parts += m
+            return parts
+        if isinstance(node, ast.Call) and _attr_chain(node.func)[-1:] in (["list"], ["tuple"]) and len(node.args) == 1:
+            return self.messages(node.args[0], scope, depth + 1)
         if isinstance(node, (ast.List, ast.Tuple)):
             msgs = []
             for elt in node.elts:
+                if isinstance(elt, ast.Name) and isinstance(scope.get(elt.id), ast.Dict):
+                    elt = scope[elt.id]          # SYSTEM = {"role": "system", "content": "..."}
+                if isinstance(elt, ast.Starred):
+                    inner = self.messages(elt.value, scope, depth + 1)
+                    if inner is not None:
+                        msgs += inner
+                        continue
                 if isinstance(elt, ast.Dict):
                     d: dict = {}
                     for k, v in zip(elt.keys, elt.values):
@@ -209,6 +240,21 @@ class _Resolver:
             return "\n".join(parts)
         t = self.text(v, scope)
         return t if t is not None else "{{" + _slot_name(ast.get_source_segment(self.src, v) or "content") + "}}"
+
+
+def _env_default(node: ast.AST | None, scope: dict, depth: int = 0) -> str | None:
+    """The string default of os.environ.get(...) / os.getenv(...), following one level of names."""
+    if isinstance(node, ast.Name) and depth < 2 and node.id in scope and scope[node.id] is not node:
+        return _env_default(scope[node.id], scope, depth + 1)
+    if not isinstance(node, ast.Call):
+        return None
+    chain = _attr_chain(node.func)
+    if chain[-2:] not in (["environ", "get"], ["os", "getenv"]) and chain != ["getenv"]:
+        return None
+    default = node.args[1] if len(node.args) > 1 else next((k.value for k in node.keywords if k.arg == "default"), None)
+    if isinstance(default, ast.Constant) and isinstance(default.value, str):
+        return default.value
+    return None
 
 
 def _slot_name(expr: str) -> str:
@@ -245,6 +291,7 @@ def scan_file(path: Path, root: Path) -> tuple[list[CallSite], list[ClientSite]]
 
     calls: list[CallSite] = []
     clients: list[ClientSite] = []
+    anthropic_names = _anthropic_names(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -255,7 +302,7 @@ def scan_file(path: Path, root: Path) -> tuple[list[CallSite], list[ClientSite]]
                                       ast.get_source_segment(src, node) or "",
                                       [k.arg for k in node.keywords]))
             continue
-        match = _match_call(node)
+        match = _match_call(node, anthropic_names)
         if not match:
             continue
         sdk, method = match
@@ -282,6 +329,10 @@ def scan_file(path: Path, root: Path) -> tuple[list[CallSite], list[ClientSite]]
             if model_node.id in resolver.module_consts and resolver.module_consts[model_node.id] is const:
                 model_span = (const.lineno, const.col_offset, const.end_lineno, const.end_col_offset)
                 notes.append(f"model comes from constant {model_node.id}")
+        elif _env_default(model_node, scope) is not None:
+            # os.environ.get("OPENAI_MODEL", "gpt-4o") / os.getenv(...): the default is what runs today
+            model = _env_default(model_node, scope)
+            notes.append("model comes from an env var; its default is what was tested")
         elif model_node is not None:
             notes.append("model is chosen at runtime; Switchyard will route it via an env var")
 

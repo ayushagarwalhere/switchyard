@@ -1,0 +1,34 @@
+# Migrate a repository without installing anything: copy this file to
+# .github/workflows/switchyard-migrate.yml, add a NEBIUS_API_KEY repository secret,
+# then Actions -> switchyard-migrate -> Run workflow.
+# Switchyard tests every LLM call on Nemotron and opens a pull request with the
+# switches that passed, the evidence, and a CI guard.
+# One-time repo setting: Settings -> Actions -> General -> "Allow GitHub Actions to
+# create and approve pull requests".
+name: switchyard-migrate
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: Folder of the app (relative to the repo root)
+        default: "."
+      budget:
+        description: Max Token Factory spend in USD
+        default: "2"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ayushagarwalhere/switchyard@main
+        with:
+          command: migrate
+          nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
+          tavily-api-key: ${{ secrets.TAVILY_API_KEY }}
+          path: ${{ inputs.path }}
+          budget: ${{ inputs.budget }}

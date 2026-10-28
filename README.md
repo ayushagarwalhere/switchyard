@@ -6,12 +6,14 @@ Most production apps send every request to one frontier model. Many of those cal
 
 Switchyard answers that per call site. Point it at a repository and it:
 
-1. **Scans** the code (static analysis, nothing is executed) for every OpenAI / Anthropic SDK call, including the prompt template, parameters and Pydantic output schema.
-2. **Understands** each call: what task it does, what inputs look like, and how the app parses the answer.
-3. **Writes tests**: typical and tricky cases with ideal reference answers. Real-world inputs come from **Tavily** web search where the task needs them.
-4. **Evaluates** every Nemotron tier on every case: hard checks in code (valid JSON, schema match, correct labels and fields) plus a Nemotron grader.
-5. **Repairs**: if a cheaper model *nearly* passes, Nemotron Ultra adapts the prompt and the cheaper model is re-tested.
-6. **Patches** the code: each call moves to the cheapest model that clears the quality bar, calls that fail stay on the original model, every changed file is re-parsed and compiled, and you get a reviewable diff plus a cost report.
+1. **Scans** the code (static analysis, nothing is executed) for every OpenAI / Anthropic SDK call (`chat.completions`, `responses.create/parse`, `beta…parse`, `messages.create`), including the prompt template, parameters and Pydantic output schema.
+2. **Investigates** each call like an engineer: a Nemotron agent with read-only tools (search, read file) finds who calls it, with what real inputs, and which fields of the answer drive the app's logic.
+3. **Understands** each call: what task it does, what inputs look like, and how the app parses the answer.
+4. **Writes tests**: typical and tricky cases with ideal reference answers, seeded with the real inputs found in the code. **Tavily** supplies real-world material where the task needs it.
+5. **Evaluates** every Nemotron tier on every case: hard checks in code (valid JSON, schema match, correct labels and fields) plus a Nemotron grader. With an `OPENAI_API_KEY`, the app's **original model answers the same tests** for a head-to-head.
+6. **Repairs**: if a cheaper model *nearly* passes, Nemotron Ultra adapts the prompt and the cheaper model is re-tested.
+7. **Patches** the code: each call moves to the cheapest model that clears the quality bar, calls that fail stay on the original model, and every changed file is re-parsed and compiled.
+8. **Runs the patched code**: each switched function is called once, for real, against Token Factory, and every HTTP request is recorded. When a function needs more than strings (say, a Pydantic object), Nemotron writes the call, runs it, and fixes it from the traceback.
 
 > Results from a recorded run are in [Results](#results).
 
@@ -21,10 +23,12 @@ Switchyard runs entirely on Nemotron models served by Token Factory (OpenAI-comp
 
 | Job | Model | Why |
 |---|---|---|
-| Understand a call site | **Nemotron 3 Super** (`nvidia/nemotron-3-super-120b-a12b`) | fast, strong at reading code, structured JSON out |
+| Investigate the codebase (tool calls: search, read file) | **Nemotron 3 Super** (`nvidia/nemotron-3-super-120b-a12b`) | agentic, many small steps |
+| Understand a call site | **Nemotron 3 Super** | fast, strong at reading code, structured JSON out |
 | Write tests and reference answers | **Nemotron 3 Ultra** (`nvidia/Nemotron-3-Ultra-550b-a55b`), reasoning on | reference quality decides everything downstream |
 | Grade candidate outputs | **Nemotron 3 Super** | many short calls, needs consistency more than depth |
 | Adapt prompts for cheaper models | **Nemotron 3 Ultra**, reasoning on | rare, high-leverage |
+| Write and fix calls into the patched code | **Nemotron 3 Super** | short code, retried from tracebacks |
 | Candidates being tested | **Lightning** (`nvidia/Nemotron-3_5-Lightning`), **Super**, **Ultra** | the migration targets, cheapest first |
 
 The "Run cost" tab shows exactly what each job spent.
@@ -35,44 +39,86 @@ The migrated app talks to Token Factory through its existing SDK: Switchyard onl
 
 - **Tavily**: finds real-world inputs (articles, tickets, product pages) so tests aren't only synthetic.
 - **LangSmith** (optional): set `LANGSMITH_API_KEY` and every model call Switchyard makes is traced.
+- **OpenAI** (optional): set `OPENAI_API_KEY` and the app's original model runs on the same tests as a baseline (billed by OpenAI, tracked separately from Token Factory spend).
 
 ## Quick start
 
-```bash
-git clone https://github.com/ayushagarwalhere/switchyard
-cd switchyard
-python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e ".[dev,tracing]"
-cp .env.example .env                               # add NEBIUS_API_KEY (and TAVILY_API_KEY)
+Three commands, run from your app's folder:
 
+```bash
+pipx install git+https://github.com/ayushagarwalhere/switchyard    # or: uv tool install git+https://...
+switchyard setup      # paste a Token Factory key once (tokenfactory.nebius.com); checked, saved to ~/.switchyard/.env
+switchyard run        # finds every LLM call, tests it on Nemotron, writes the patch, offers to apply it
+```
+
+`switchyard run` shows what it found and what it will cost before spending anything:
+
+```
+Found 3 LLM call(s) in 1 Python files:
+  app.py:11    triage                       gpt-4o-mini
+  app.py:21    extract_invoice              gpt-4o
+  app.py:29    summarize                    pick_model()
+
+Testing them on Nemotron costs about $0.21 on Token Factory (8 tests per call; hard cap $2.00, set with --budget).
+Start? [Y/n]
+...                         (live progress: tests, scores, decisions per call)
+Apply the patch on a new branch of your checkout? [Y/n]
+```
+
+Answer yes and you get a `switchyard/nemotron-<run>` branch with the patch, `.env.switchyard.example` (the env vars the patched code reads), `.switchyard/run.json` (the saved tests) and a CI workflow that re-runs them. Nothing is committed. Review with `git diff`.
+
+| You want to | Run |
+|---|---|
+| See which calls Switchyard would test and the cost, free, no key | `switchyard run --dry-run` |
+| Skip the questions (scripts) | `switchyard run --yes --apply` |
+| Get a pull request with the evidence as its description (needs `gh`) | `switchyard run --pr`, or later `switchyard pr` |
+| Apply the most recent run later | `switchyard apply` |
+| Only test part of a monorepo | `switchyard run services/support` or `--include "app/**" --exclude "tests/**"` |
+| Try it on someone else's repo | `switchyard run https://github.com/owner/repo` (GitHub folder links work: `.../tree/main/some/dir`) |
+| Re-test the switched calls, e.g. after a prompt edit | `switchyard check` |
+| Browse runs in the web app | `switchyard serve` |
+
+Keys can also come from your project's `.env` or the environment (`NEBIUS_API_KEY`; optional `TAVILY_API_KEY`, `OPENAI_API_KEY`). A project's `.env` wins over the saved key. If `OPENAI_API_KEY` is set, the app's current model answers the same tests as a baseline; turn that off with `SWITCHYARD_BASELINE=0`.
+
+### No install: GitHub Actions
+
+Add a `NEBIUS_API_KEY` repository secret, copy [examples/switchyard-migrate.yml](examples/switchyard-migrate.yml) to `.github/workflows/`, and press **Run workflow**. Switchyard tests every call on a GitHub runner and opens a pull request with the switches that passed. (One-time setting: *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*.)
+
+The CI guard is a single step, and `switchyard apply` adds it for you:
+
+```yaml
+- uses: ayushagarwalhere/switchyard@main
+  with:
+    nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
+```
+
+It re-runs the saved tests for every switched call ([examples/switchyard-check.yml](examples/switchyard-check.yml): nightly and on Python changes), re-scans the code so an edited prompt is what gets tested, fails the job if a call drops below the bar, and writes a pass-rate table to the job summary.
+
+### From Python
+
+```python
+import switchyard
+
+calls = switchyard.scan(".")                     # no API calls
+result = switchyard.migrate(".", budget=1.0)     # full run; returns the run record
+print(result.summary, result.patch_path)
+result.apply()                                   # new branch in your checkout
+```
+
+### Hacking on Switchyard
+
+```bash
+git clone https://github.com/ayushagarwalhere/switchyard && cd switchyard
+python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -e ".[dev,tracing]" && pytest
 switchyard models                                  # check access and model ids
-switchyard scan path/to/repo                       # list LLM call sites, no API calls
-switchyard run https://github.com/owner/repo       # full migration run (default budget $2)
-switchyard serve                                   # web app on http://127.0.0.1:8000
+switchyard doctor                                  # which API features each Nemotron model supports (~30s)
 switchyard publish <run-id>                        # feature a finished run in the web app + fill the Results below
 ```
 
-GitHub folder links work too, e.g. `https://github.com/daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns`.
+Each run is saved in `~/.switchyard/runs/<id>/` (`runs/<id>/` in a source checkout): `run.json` (every test, output, score and decision), `migration.patch`, `migration.env`, `PR.md` (the pull-request description) and the migrated copy of the code.
 
-Each run is saved in `runs/<id>/`: `run.json` (every test, output, score and decision), `migration.patch`, `migration.env`, `PR.md` (the pull-request description) and the migrated copy of the code.
-
-## Use it on a real codebase
-
-```bash
-# 1. Test every call site and write the patch (filters are optional)
-switchyard run . --include "app/**" --exclude "tests/**" --budget 2
-
-# 2a. Apply it on a new branch in your checkout (nothing is committed)
-switchyard apply <run-id> .
-
-# 2b. ...or let Switchyard commit, push and open the PR with its report (needs the gh CLI)
-switchyard pr <run-id> .
-
-# 3. Keep it honest: re-run the saved tests in CI and fail on drift
-switchyard check .switchyard/run.json --repo .
-```
-
-`apply` also drops `.switchyard/run.json` (the test set) and `.env.switchyard.example` into the repo. [examples/switchyard-check.yml](examples/switchyard-check.yml) is a ready GitHub Actions workflow that runs the check nightly and on every PR that touches Python. `check --repo .` re-scans the code, so if someone edits a prompt the edited prompt is what gets tested.
+## More
 
 ### Use your real traffic as the reference
 
@@ -98,9 +144,10 @@ The export uses the `INPUT:` / `GOLDEN:` column style that crowd platforms accep
 ## How decisions are made
 
 - A model **passes a case** when the hard checks pass *and* the grader scores it 7/10 or more.
-- A model **clears the bar** for a call site when its pass rate is at least the target (default 85%) *and* its mean score is within 0.05 of the best model tested, so a cheap model never wins by squeaking past a low bar.
+- A model **clears the bar** for a call site when its pass rate is at least the target (default 85%) *and* its mean score is within 0.05 of the best model tested, so a cheap model never wins by squeaking past a low bar. When the original model was run as a baseline, it counts toward "best": a switch has to be about as good as what the app uses today.
 - The **cheapest** model that clears the bar wins. If a cheaper model came close, Ultra adapts the prompt once and that variant is re-tested.
 - If nothing clears the bar, the call **stays on its original model**. Switchyard says so; it doesn't force a migration.
+- A switched function is **verified** when the patched code, run for real, returns normally and its request reaches Token Factory with the chosen model. If the app's own code chokes on the new model's answer, that's reported as a failure.
 
 ## Results
 
@@ -111,20 +158,27 @@ _Filled in from a recorded run by `switchyard publish <run-id>`._
 ## Limits
 
 - Python only. OpenAI SDK calls are rewritten automatically. Plain Anthropic `messages.create()` calls are rewritten too: they go through a small shim that returns Anthropic-shaped responses from Token Factory. Async, streaming and tool-use Anthropic calls are tested and get a target model in the report, but you port them by hand.
-- Prompts built far from the call site are tested as a single user turn.
+- Prompts built far from the call site are tested as a single user turn (the investigation step tells the test writer what the real inputs look like).
+- Running the patched code executes the repository's definitions (imports, classes, functions; top-level demo code is skipped) in a subprocess. It's on by default locally and off on the public demo. Turn it off with `--no-exec` or `SWITCHYARD_EXEC=0`.
 - Quality is measured against reference answers written by Nemotron Ultra with reasoning on, not against the original provider's outputs. If you have recorded production outputs, those make a stronger reference.
 
 ## Project layout
 
 ```
 switchyard/
-  scanner.py    find call sites, prompt templates, Pydantic schemas (AST only)
-  agents.py     Nemotron steps: analyze, write tests, grade, repair prompts
-  evaluate.py   run candidates, hard checks + grader, per-model summaries
-  pipeline.py   orchestration, decisions, savings, Tavily, LangSmith
-  rewrite.py    AST-positioned code edits, compile checks, diff
-  server.py     FastAPI + server-sent events for the web app
-web/            the web app (vanilla JS + Three.js hero)
+  scanner.py      find call sites, prompt templates, Pydantic schemas (AST only)
+  investigate.py  tool-using Nemotron agent that reads the rest of the codebase
+  agents.py       Nemotron steps: analyze, write tests, grade, repair prompts
+  evaluate.py     run candidates, hard checks + grader, per-model summaries
+  pipeline.py     orchestration, decisions, savings, Tavily, LangSmith
+  rewrite.py      AST-positioned code edits, compile checks, diff
+  runcheck.py     run each switched function from the patched code against Token Factory
+  publish.py      feature a run in the web app, write README results
+  server.py       FastAPI + server-sent events for the web app
+  web/            the web app (vanilla JS + Three.js hero)
+  onboard.py      `switchyard setup`: check and save keys
+  gitops.py       apply / pr: branch, patch, CI workflow, pull request
+action.yml        GitHub Action (CI guard, or migrate-and-open-a-PR)
 tests/          offline tests (a scripted stand-in for Token Factory)
 ```
 

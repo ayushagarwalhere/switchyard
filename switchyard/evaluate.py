@@ -162,7 +162,7 @@ def summarize(model_key: str, results: list[dict], hint: str = "") -> dict:
     lat = sorted(r["latency"] for r in ok) or [0]
     return {
         "model": model_key,
-        "model_id": config.MODELS[model_key].id,
+        "model_id": config.model(model_key).id,
         "hint": hint,
         "pass_rate": sum(r["passed"] for r in results) / n,
         "score": sum(r["score"] for r in results) / n,

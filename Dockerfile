@@ -3,9 +3,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY switchyard ./switchyard
-COPY web ./web
 COPY runs ./runs
 RUN pip install --no-cache-dir ".[tracing]"
-ENV SWITCHYARD_PUBLIC=1 PORT=7860
+ENV SWITCHYARD_PUBLIC=1 PORT=7860 SWITCHYARD_RUNS=/app/runs
 EXPOSE 7860
 CMD ["sh", "-c", "uvicorn switchyard.server:app --host 0.0.0.0 --port ${PORT}"]
