@@ -46,3 +46,14 @@ Use the same `Dockerfile`. These platforms set `PORT` and the container respects
 ```bash
 switchyard serve --host 0.0.0.0 --port 8000
 ```
+
+## AWS EC2 (Amazon Linux)
+
+One command from your machine, once the instance's security group allows inbound TCP 22 (your IP) and 80 (anywhere):
+
+```bash
+deploy/ec2.sh <public-ip-or-dns> ~/Downloads/switchyard.pem              # replays, judge tour, free audit
+deploy/ec2.sh <public-ip-or-dns> ~/Downloads/switchyard.pem --with-key   # + live runs behind an access code
+```
+
+It installs Docker, clones the repo, copies any featured runs from `runs/demo`, builds the image and runs it on port 80 with `--restart unless-stopped`. With `--with-key` the key goes to a `chmod 600` env file on the server (never into the image), live runs need the printed access code, and each run is capped at $0.50.

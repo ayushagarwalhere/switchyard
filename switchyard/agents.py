@@ -70,10 +70,13 @@ def generate_tests(tf: TokenFactory, site: dict, analysis: dict, n: int = 8, sou
             "\n---\n".join(f"{s.get('title', '')}\n{(s.get('content') or '')[:1200]}" for s in sources[:5])
     user = (f"{_site_brief(site, context)}\n\nTask analysis:\n{json.dumps(analysis, indent=2)}\n\n"
             f"Template variables: {site['variables']}\nWrite {n} cases.{src_txt}")
-    data, _ = tf.json(config.ROLE_TESTGEN, [
-        {"role": "system", "content": TESTGEN_SYS},
-        {"role": "user", "content": user},
-    ], role="testgen", temperature=0.6, reasoning=True, max_tokens=16000)
+    msgs = [{"role": "system", "content": TESTGEN_SYS}, {"role": "user", "content": user}]
+    try:
+        data, _ = tf.json(config.ROLE_TESTGEN, msgs, role="testgen", temperature=0.6, reasoning=True, max_tokens=16000)
+    except ValueError:
+        # very long inputs (whole documents) can break the reply's JSON: let Super write a smaller set
+        msgs[1]["content"] = user.replace(f"Write {n} cases.", f"Write {max(2, n // 2)} cases. Keep each input under 300 words.")
+        data, _ = tf.json(config.ROLE_ANALYZE, msgs, role="testgen", temperature=0.4, reasoning=False, max_tokens=12000)
     cases = data if isinstance(data, list) else data.get("cases") or next((v for v in data.values() if isinstance(v, list)), [])
     cases = [c for c in cases if isinstance(c, dict)]
     out = []
@@ -102,16 +105,20 @@ def render(messages: list[dict], inputs: dict) -> list[dict]:
     return out
 
 
-JUDGE_SYS = """You are a strict grader comparing a model's answer to a reference answer for one task inside a real application.
-Grade whether the candidate would work as well as the reference *for the application* (format the code relies on, correctness, completeness). Wording differences are fine; wrong labels, missing or wrong facts, broken format, or extra chatter that would break parsing are not.
+JUDGE_SYS = """You grade one model answer for one LLM call inside a real application. The reference answer is ONE example of a good answer, not the only acceptable one.
+Pass the candidate when it would work as well as the reference for the application: the format the code relies on is right, the decisions and facts are correct, nothing the task requires is missing, and the prompt's explicit instructions are followed.
+Do NOT penalize: different wording, different but reasonable tags or labels in free-form lists, more or less detail in explanations, or style, unless the output contract requires exact values.
+DO fail: a wrong decision or label where the app branches on it, missing or wrong facts, broken or extra format that would break parsing, or an ignored explicit instruction.
+Score 0-10; set pass to true exactly when the score is 7 or more.
 Reply with JSON only: {"score": 0-10, "pass": true|false, "reason": "one short sentence"}"""
 
 
 def judge(tf: TokenFactory, analysis: dict, case: dict, rendered: list[dict], candidate: str) -> dict:
-    prompt_view = "\n".join(f"[{m['role']}] {m['content'][:1500]}" for m in rendered)
+    # the grader must see whole answers: a long but complete JSON plan cut at 3,000 characters looks broken
+    prompt_view = "\n".join(f"[{m['role']}] {m['content'][:4000]}" for m in rendered)
     user = (f"Task: {analysis.get('summary')}\nOutput format: {json.dumps(analysis.get('output', {}))}\n"
             f"How the app parses it: {analysis.get('parsing', '')}\nCriteria: {analysis.get('quality_criteria', [])}\n\n"
-            f"Prompt sent:\n{prompt_view}\n\nReference answer:\n{case['reference'][:3000]}\n\nCandidate answer:\n{candidate[:3000]}")
+            f"Prompt sent:\n{prompt_view}\n\nReference answer:\n{case['reference'][:12000]}\n\nCandidate answer:\n{candidate[:12000]}")
     try:
         data, _ = tf.json(config.ROLE_JUDGE, [{"role": "system", "content": JUDGE_SYS}, {"role": "user", "content": user}],
                           role="judge", temperature=0.0, reasoning=False, max_tokens=400)

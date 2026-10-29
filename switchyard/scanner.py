@@ -155,6 +155,13 @@ class _Resolver:
     def scope_for(self, func: ast.AST | None) -> dict[str, ast.AST]:
         scope = dict(self.module_consts)
         if func is not None:
+            # a parameter shadows a module-level name: `def f(user_input)` must not resolve to the demo
+            # code's `user_input = "..."` at the bottom of the file
+            a = getattr(func, "args", None)
+            if a is not None:
+                for p in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg]:
+                    if p is not None:
+                        scope.pop(p.arg, None)
             for node in ast.walk(func):
                 if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
                     scope[node.targets[0].id] = node.value

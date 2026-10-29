@@ -79,3 +79,23 @@ def test_concatenated_messages_and_env_var_models(tmp_path):
     assert calls["chat"]["model"] == "gpt-4o-mini"
     assert calls["chat2"]["model"] == "gpt-4.1"
     assert calls["chat2"]["messages"][0] == {"role": "system", "content": "Be kind."}
+
+
+SHADOW = '''
+from openai import OpenAI
+client = OpenAI()
+
+
+def extract(user_input):
+    return client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": user_input}])
+
+
+user_input = "Can you send an email to Alice?"     # demo code at the bottom of the file
+print(extract(user_input))
+'''
+
+
+def test_parameters_shadow_module_level_demo_values(tmp_path):
+    (tmp_path / "app.py").write_text(SHADOW, encoding="utf-8")
+    call = scanner.scan_repo(tmp_path)["calls"][0]
+    assert call["messages"] == [{"role": "user", "content": "{{user_input}}"}] and call["variables"] == ["user_input"]

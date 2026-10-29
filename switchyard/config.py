@@ -17,9 +17,10 @@ SOURCE_ROOT = Path(__file__).resolve().parent.parent
 
 def load_env() -> None:
     """The project's .env (searched from the current folder up) wins over the saved user key."""
-    files = [Path(find_dotenv(usecwd=True) or "")]
+    # .env.local first (Next.js / Vite convention), then .env, from the current folder up
+    files = [Path(find_dotenv(".env.local", usecwd=True) or ""), Path(find_dotenv(usecwd=True) or "")]
     if (SOURCE_ROOT / "pyproject.toml").exists():
-        files.append(SOURCE_ROOT / ".env")
+        files += [SOURCE_ROOT / ".env.local", SOURCE_ROOT / ".env"]
     files.append(USER_ENV)
     for f in files:
         if not f.is_file():
@@ -166,8 +167,14 @@ def baseline_key() -> str | None:
     return key
 
 
+KEY_NAMES = ("NEBIUS_API_KEY", "TOKEN_FACTORY_API_KEY", "NEBIUS_TOKEN_FACTORY_KEY", "NEBIUS_TOKEN_FACTORY_API_KEY")
+
+
 def api_key() -> str | None:
-    return os.environ.get("NEBIUS_API_KEY") or os.environ.get("TOKEN_FACTORY_API_KEY")
+    key = next((os.environ[k] for k in KEY_NAMES if os.environ.get(k)), None)
+    if key and not os.environ.get("NEBIUS_API_KEY"):
+        os.environ["NEBIUS_API_KEY"] = key     # the patched code and the runtime check read this name
+    return key
 
 
 def tavily_key() -> str | None:

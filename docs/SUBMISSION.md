@@ -57,4 +57,20 @@ On [daveebbelaar/ai-cookbook](https://github.com/daveebbelaar/ai-cookbook) workf
 python, fastapi, nvidia-nemotron, nebius-token-factory, tavily, langsmith, three.js, openai-sdk, github-actions, sarif, agent-skills
 
 ## Feedback on Nebius Token Factory and NVIDIA tools (required section)
-[fill from real experience during the build. Start from `switchyard doctor --out doctor.md`: it probes chat, json_object, json_schema, tool calling, the enable_thinking switch and the Responses API on each Nemotron model, so the table is real data. Add: rate limits hit, latency, docs gaps (e.g. no per-model capability list for tool calling; Nemotron isn't in the fine-tuning model list; custom-weight deployment is beta-on-request).]
+
+Everything below comes from our own runs on 2026-10-29: `switchyard doctor` probes plus two full migration runs on ai-cookbook (760 and 827 Token Factory calls, $0.61 and $0.52).
+
+**What worked well**
+- **One OpenAI-compatible endpoint for the whole Nemotron family.** Moving an app was a `base_url` and `model` change, so our patches stay small and easy to review. The `/v1/models` listing showed 18 models, including the three we use.
+- **Feature coverage was complete.** All three Nemotron models (3.5 Lightning, 3 Super, 3 Ultra) passed every probe in [docs/doctor.md](doctor.md): plain chat, `json_object`, `json_schema` structured output, tool calling, the `enable_thinking` switch, and the Responses API. Neither run needed a single fallback path.
+- **Price makes "test before you switch" practical.** A full migration study of 11 call sites cost about $0.55: 8 tests each, 3 models, a grader, prompt repair and security probes. Ultra writing the tests was the largest line item. Running Super as the grader for ~300 judgements cost about $0.10.
+- **Tool calling on Super was good enough for an investigation agent.** It read and searched real repos over ~70 tool calls per run for about $0.05.
+
+**What we'd improve**
+- **Latency doesn't follow size.** Median per-call latency on our test sets was Lightning 6.8–9.3s, Super 4.6–5.2s, Ultra 5.7–6.8s. The smallest model was the slowest, which surprised us and matters for latency-sensitive routes. A published latency/throughput figure per model would help people choose.
+- **Long structured outputs can run away.** With thinking off, Ultra hit our 4,096-token cap on 2 of 8 plan-generation cases, producing unfinished JSON. Guidance on recommended `max_tokens`, or stop behaviour for `json_schema` mode, would help.
+- **A per-model capability table in the docs** (tools, `json_schema`, reasoning switch, Responses API) would save everyone a probe script like ours.
+- **Fine-tuning:** Nemotron models aren't in the fine-tuning list. For call sites where no stock model passes, fine-tuning a small Nemotron on the test set Switchyard already writes would be the natural next step.
+- **Smaller models need format hints.** Lightning often added chatter around JSON. Ultra's one-line prompt hint fixed many cases, which is exactly what Switchyard's repair step automates.
+
+**NVIDIA open source we built on:** garak's probe/detector design shaped our injection audit. NeMo Guardrails-style input rules are the fixes we re-test. SkillSpector scans our agent skills in CI and passes.

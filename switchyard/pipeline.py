@@ -298,6 +298,10 @@ class Run:
                 # a prompt with no runtime values only needs a few samples (it checks consistency)
                 want = self.tests - len(cases) if site["variables"] else max(0, min(3, self.tests) - len(cases))
                 gen = agents.generate_tests(tf, site, analysis, n=want, sources=sources, context=ctx) if want else []
+                if want and len(gen) < (want + 1) // 2:
+                    # long inputs (whole documents) can crowd out the rest of the batch: ask once more for the gap
+                    gen += agents.generate_tests(tf, site, analysis, n=want - len(gen), sources=sources, context=ctx)
+                    gen = gen[:want]
                 for c in gen:
                     c["id"] = len(cases) + 1
                     cases.append(c)
@@ -321,6 +325,12 @@ class Run:
             with ThreadPoolExecutor(max_workers=len(keys)) as pool:
                 for mk, res in pool.map(run_model, keys):
                     evals[mk] = res
+            disputed = evaluate.disputed_cases(evals)
+            if disputed:
+                evals = {k: evaluate.exclude(v, disputed) for k, v in evals.items()}
+                out["disputed"] = disputed
+                self.emit("step", step="disputed", message=f"{sid}: {len(disputed)} test(s) set aside: every model "
+                          "gave the same answer against the reference, so the reference is likely wrong")
             out["evals"] = evals
 
             decision = decide(evals, self.target)
@@ -333,7 +343,8 @@ class Run:
                          for r in evals[mk]["results"] if not r["passed"]]
                 fix = agents.repair_prompt(tf, site, analysis, fails)
                 if fix["hint"]:
-                    res = evaluate.evaluate_model(tf, site, analysis, cases, mk, hint=fix["hint"])
+                    res = evaluate.exclude(evaluate.evaluate_model(tf, site, analysis, cases, mk, hint=fix["hint"]),
+                                           disputed)
                     res["rationale"] = fix["rationale"]
                     evals[f"{mk}+hint"] = res
                     self.emit("model", id=sid, model=f"{mk}+hint", **_brief(res))
