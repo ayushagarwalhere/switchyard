@@ -20,24 +20,23 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "reel"
 FPS = 30
-VOICES = {"dev": ("en-US-BrianNeural", "+4%", "+0Hz"), "bot": ("en-US-AnaNeural", "+6%", "+0Hz")}
+VOICES = {"dev": ("en-US-BrianNeural", "+4%", "+0Hz"), "bot": ("en-US-AvaNeural", "+3%", "+0Hz")}
 
 # (speaker, line, card shown while it plays, shot) - shot: dev / bot / two / card
 LINES = [
-    # the problem
-    ("dev", "Switchy. Our LLM bill just hit seven hundred dollars a month.", None, "dev"),
-    ("dev", "For one small app!", "bill", "card"),
-    ("bot", "Every request goes to GPT-4o. Even the tiny ones.", "bill", "card"),
+    # 01 the problem
+    ("dev", "Switchy, our LLM bill just hit seven hundred dollars a month. For one small app!", None, "dev"),
+    ("bot", "That's the problem. Every request goes to GPT-4o, the most expensive model. Even the tiny ones.", "bill", "card"),
     ("dev", "Tiny ones?", None, "dev"),
     ("bot", "Seven of your eleven calls just route, classify, or pull out a few fields.", "calls", "card"),
-    ("bot", "A small model does that fine.", None, "bot"),
-    # the cause
-    ("dev", "Then why haven't we switched?", None, "dev"),
-    ("bot", "Because nobody can prove a cheaper model is good enough. Your prompts have no tests.", "cause", "card"),
-    ("dev", "And if I swap the model and the JSON breaks in production...", None, "dev"),
-    ("bot", "Exactly. So the bill just stays.", None, "bot"),
-    # the solution
-    ("bot", "So, meet Switchyard. One command.", "run", "card"),
+    ("bot", "A small model does that fine, for a fraction of the price.", None, "bot"),
+    # 02 the cause
+    ("dev", "Then why haven't we switched to a cheaper model?", None, "dev"),
+    ("bot", "Here's the cause. Nobody can prove a cheaper model is good enough, because your prompts have no tests.", "cause", "card"),
+    ("bot", "Prompts are tuned for one model. Swap it, and the JSON breaks. And checking every call by hand takes weeks.", "cause", "card"),
+    ("dev", "So we just keep paying.", None, "dev"),
+    # 03 the solution
+    ("bot", "Not anymore. Meet Switchyard. One command.", "run", "card"),
     ("dev", "What does it actually do?", None, "two"),
     ("bot", "It finds every LLM call in your code, investigates how it's used, "
             "and writes real tests with Nemotron Ultra and Tavily.", "tests", "card"),
@@ -50,7 +49,7 @@ LINES = [
             "The whole study cost fifty cents.", "results", "card"),
     ("dev", "Seven hundred a month, down to seventeen?", "bill2", "card"),
     ("bot", "And the four writing calls stayed on GPT-4o. It says no when it should.", None, "bot"),
-    # every feature
+    # 04 every feature
     ("dev", "How do I use it?", None, "dev"),
     ("bot", "From your terminal, your coding agent, an MCP server, or a GitHub Action that opens the pull request. "
             "Python and TypeScript.", "features", "card"),
@@ -58,6 +57,9 @@ LINES = [
     ("dev", "Run it.", None, "two"),
     ("bot", "Switchyard. Built on NVIDIA Nemotron and Nebius Token Factory.", "cta", "card"),
 ]
+# chapter label shown from this line on (index into LINES)
+SECTIONS = {0: "01 · The problem", 5: "02 · The cause", 9: "03 · The solution", 20: "04 · Everything in the box"}
+SECTION_PAUSE = 0.6   # a breath before each new chapter
 GAP = 0.32          # silence between lines
 START = 0.5
 
@@ -94,7 +96,10 @@ def main() -> None:
         nz = np.nonzero(np.abs(x) > 0.01)[0]            # trim TTS lead-in/out silence
         a, b = (nz[0], nz[-1]) if len(nz) else (0, len(x))
         trim_start, dur = a / 16000, (b - a) / 16000
+        if i in SECTIONS and i:
+            t += SECTION_PAUSE
         timeline.append({"i": i, "who": who, "text": text, "card": card, "shot": shot, "start": round(t, 3),
+                         "section": SECTIONS.get(i),
                          "dur": round(dur, 3), "clip_offset": round(trim_start, 3), "env": envelope(x[a:b])})
         t += dur + GAP + (0.35 if card else 0)          # cards get a beat longer on screen
     total = round(t + 1.2, 2)
