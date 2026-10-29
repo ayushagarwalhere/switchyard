@@ -31,9 +31,10 @@ class FakeShell:
             return json.dumps({"status": {"state": "RUNNING", "public_endpoints": ["https://e-42.nebius.app"]}})
         return "{}"
 
-    def run(self, cmd, input=None, cwd=None, stream=False):
+    def run(self, cmd, input=None, cwd=None, stream=False, env=None, check=True):
         self.calls.append(tuple(cmd))
-        return ""
+        self.env = env or getattr(self, "env", None)
+        return "running" if cmd[:2] == ["docker", "inspect"] else ""
 
 
 @pytest.fixture
@@ -100,3 +101,16 @@ def test_status_logs_delete(app):
     assert deploy.delete("notes", shell=sh) == "notes"
     assert json.loads(deploy.STATE.read_text())["apps"] == {}
     assert config.HOME  # state lives under the Switchyard home, never in the app repo
+
+
+def test_local_deploy_runs_the_same_image_without_nebius(app):
+    sh = FakeShell()
+    res = deploy.Deployer(app, shell=sh, emit=lambda *_: None, http=lambda u, t: 200, local=True).run()
+    assert res["local"] and res["url"].startswith("http://127.0.0.1:") and res["healthy"]
+    assert not any(c[0] == "nebius" for c in sh.calls)
+    run = next(c for c in sh.calls if c[:2] == ("docker", "run"))
+    assert "-e" in run and "NEBIUS_API_KEY" in run and not any("tf-test-key" in x for x in run)   # key not on the command line
+    assert sh.env["NEBIUS_API_KEY"] == "tf-test-key"
+    assert deploy.status("notes", shell=sh)["state"] == "running"
+    deploy.delete("notes", shell=sh)
+    assert ("docker", "rm", "-f", "switchyard-notes") in sh.calls

@@ -58,15 +58,19 @@ class Shell:
         # in WSL the installer's PATH entry may only be in .bashrc, so add it explicitly
         cmd = (pre + ['export PATH="$HOME/.nebius/bin:$PATH"; ' + shlex.join(["nebius", *args])]
                if pre[0] == "wsl" else pre + list(args))
-        r = subprocess.run(cmd, capture_output=True, text=True, input=input)
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", input=input)
         if check and r.returncode != 0:
             raise DeployError(f"nebius {' '.join(args[:3])} failed: {(r.stderr or r.stdout).strip()[-800:]}")
         return r.stdout
 
-    def run(self, cmd: list[str], input: str | None = None, cwd: str | None = None, stream: bool = False) -> str:
+    def run(self, cmd: list[str], input: str | None = None, cwd: str | None = None, stream: bool = False,
+            env: dict | None = None, check: bool = True) -> str:
         if not shutil.which(cmd[0]):
             raise DeployError(f"{cmd[0]} isn't installed" + (" (Docker Desktop: docker.com)" if cmd[0] == "docker" else ""))
-        r = subprocess.run(cmd, capture_output=not stream, text=True, input=input, cwd=cwd)
+        r = subprocess.run(cmd, capture_output=not stream, text=True, encoding="utf-8", errors="replace", input=input, cwd=cwd,
+                           env={**os.environ, **env} if env else None)
+        if not check:
+            return (r.stdout or "") + (r.stderr or "")
         if r.returncode != 0:
             raise DeployError(f"{' '.join(cmd[:3])} failed: {((r.stderr or '') + (r.stdout or '')).strip()[-800:]}")
         return r.stdout or ""
@@ -160,12 +164,13 @@ def save_state(st: dict) -> None:
 class Deployer:
     def __init__(self, path: str | Path = ".", name: str | None = None, platform: str = DEFAULT_PLATFORM,
                  preset: str = DEFAULT_PRESET, private: bool = False, force: bool = False, emit=print,
-                 shell: Shell | None = None, wait: float = 600, http=None):
+                 shell: Shell | None = None, wait: float = 600, http=None, local: bool = False):
         self.root = Path(path).resolve()
         self.name = _slug(name or self.root.name)
         self.platform, self.preset, self.private, self.force = platform, preset, private, force
         self.emit, self.sh, self.wait = emit, shell or Shell(), wait
         self.http = http or _http_get
+        self.local = local
 
     def registry(self, st: dict) -> dict:
         if st.get("registry"):
@@ -203,6 +208,8 @@ class Deployer:
             wrote_dockerfile = True
             self.emit(f"  wrote a Dockerfile for this {info['kind']} app")
         st = load_state()
+        if self.local:
+            return self.run_local(st, info, len(sec["findings"]), wrote_dockerfile)
         reg = self.registry(st)
         tag = time.strftime("%Y%m%d-%H%M%S")
         image = f"{reg['host']}/{reg['path']}/{self.name}:{tag}"
@@ -243,6 +250,33 @@ class Deployer:
             self.sh.nebius("ai", "endpoint", "delete", old["endpoint_id"], check=False)
         return {**rec, "name": self.name, "wrote_dockerfile": wrote_dockerfile, "secure": len(sec["findings"]),
                 "token": None}
+
+    def run_local(self, st: dict, info: dict, n_findings: int, wrote_dockerfile: bool) -> dict:
+        """The same image, env and health check, as a container in local Docker (free; no Nebius calls)."""
+        import socket
+        tag = time.strftime("%Y%m%d-%H%M%S")
+        image = f"switchyard-local/{self.name}:{tag}"
+        container = f"switchyard-{self.name}"
+        self.emit(f"Building {image} (linux/amd64)…")
+        self.sh.run(["docker", "build", "--platform", "linux/amd64", "-t", image, "."], cwd=str(self.root))
+        self.sh.run(["docker", "rm", "-f", container], check=False)
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        env = app_env(self.root)
+        cmd = ["docker", "run", "-d", "--name", container, "-p", f"127.0.0.1:{port}:{info['port']}"]
+        for k in env:
+            cmd += ["-e", k]                     # values come from the environment, never the command line
+        self.emit(f"Starting it locally on port {port}…")
+        self.sh.run(cmd + [image], env=env)
+        url = f"http://127.0.0.1:{port}"
+        healthy = self.health(url, None)
+        rec = {"local": True, "container": container, "image": image, "url": url, "path": str(self.root),
+               "created": time.time(), "healthy": healthy, "env": sorted(env)}
+        st["apps"][self.name] = rec
+        save_state(st)
+        return {**rec, "name": self.name, "endpoint": container, "wrote_dockerfile": wrote_dockerfile,
+                "secure": n_findings, "token": None}
 
     def await_url(self, ep_id: str) -> str:
         self.emit("Waiting for the endpoint to start…")
@@ -323,6 +357,9 @@ def _pick(name: str | None) -> tuple[str, dict]:
 
 def status(name: str | None = None, shell: Shell | None = None) -> dict:
     name, rec = _pick(name)
+    if rec.get("local"):
+        out = (shell or Shell()).run(["docker", "inspect", "-f", "{{.State.Status}}", rec["container"]], check=False).strip()
+        return {"name": name, "url": rec.get("url"), "state": out or "gone", "image": rec.get("image"), "endpoint": rec["container"]}
     data = _json((shell or Shell()).nebius("ai", "endpoint", "get", rec["endpoint_id"], "--format", "json", check=False))
     st = (data.get("status") or {})
     return {"name": name, "url": rec.get("url"), "state": st.get("state") or ("gone" if not data else "unknown"),
@@ -331,12 +368,17 @@ def status(name: str | None = None, shell: Shell | None = None) -> dict:
 
 def logs(name: str | None = None, shell: Shell | None = None) -> str:
     name, rec = _pick(name)
+    if rec.get("local"):
+        return (shell or Shell()).run(["docker", "logs", "--tail", "200", rec["container"]], check=False)
     return (shell or Shell()).nebius("ai", "endpoint", "logs", rec["endpoint_id"], check=False)
 
 
 def delete(name: str | None = None, shell: Shell | None = None) -> str:
     name, rec = _pick(name)
-    (shell or Shell()).nebius("ai", "endpoint", "delete", rec["endpoint_id"])
+    if rec.get("local"):
+        (shell or Shell()).run(["docker", "rm", "-f", rec["container"]], check=False)
+    else:
+        (shell or Shell()).nebius("ai", "endpoint", "delete", rec["endpoint_id"])
     st = load_state()
     st["apps"].pop(name, None)
     save_state(st)

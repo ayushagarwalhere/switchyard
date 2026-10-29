@@ -136,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--preset", default=None, help="vCPU/RAM preset for the platform (default 4vcpu-16gb)")
     dp.add_argument("--private", action="store_true", help="require a bearer token (default: public web app)")
     dp.add_argument("--force", action="store_true", help="deploy even with blocking security findings")
+    dp.add_argument("--local", action="store_true",
+                    help="run the same image, env and health check in local Docker instead of Nebius (free)")
 
     se = sub.add_parser("secure", help="whole-app security check before shipping (secrets, vulnerable deps, config, LLM calls)")
     se.add_argument("repo", nargs="?", default=".")
@@ -750,12 +752,15 @@ def _deploy(args) -> int:
                 print(f"deleted {deploy.delete(args.app)} (it no longer bills)")
             return 0
         kw = {k: v for k, v in (("platform", args.platform), ("preset", args.preset)) if v}
-        res = deploy.Deployer(args.target, args.name, private=args.private, force=args.force, **kw).run()
+        res = deploy.Deployer(args.target, args.name, private=args.private, force=args.force, local=args.local, **kw).run()
     except deploy.DeployError as e:
         print(f"deploy: {e}", file=sys.stderr)
         return 1
     print(f"Live: {res['url']}  ({'healthy' if res['healthy'] else 'not answering yet'})")
-    print(f"Endpoint {res['endpoint']} bills until deleted: `switchyard deploy delete {res['name']}`")
+    if res.get("local"):
+        print(f"Running in local Docker as {res['endpoint']}; stop it with `switchyard deploy delete {res['name']}`")
+    else:
+        print(f"Endpoint {res['endpoint']} bills until deleted: `switchyard deploy delete {res['name']}`")
     return 0 if res["healthy"] else 1
 
 
