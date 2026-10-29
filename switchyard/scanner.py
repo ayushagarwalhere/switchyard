@@ -704,9 +704,21 @@ def scan_repo(root: str | Path) -> dict:
         c, cl = scan_file(path, root)
         calls.extend(c)
         clients.extend(cl)
-    calls.sort(key=lambda c: (c.file, c.line))
-    return {"root": str(root), "files": files, "loc": loc,
-            "calls": [c.to_dict() for c in calls], "clients": [asdict(c) for c in clients]}
+    out_calls = [c.to_dict() for c in calls]
+    out_clients = [asdict(c) for c in clients]
+    # JavaScript / TypeScript (Next.js, Node, Vercel AI SDK)
+    from . import jsscan
+    for path in jsscan.iter_js_files(root):
+        files += 1
+        try:
+            loc += sum(1 for _ in path.open(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        c, cl = jsscan.scan_js_file(path, root)
+        out_calls.extend(c)
+        out_clients.extend(cl)
+    out_calls.sort(key=lambda c: (c["file"], c["line"]))
+    return {"root": str(root), "files": files, "loc": loc, "calls": out_calls, "clients": out_clients}
 
 
 if __name__ == "__main__":

@@ -60,7 +60,15 @@ class RepoTools:
 
     def __init__(self, root: Path):
         self.root = root.resolve()
-        self.files = sorted(p for p in self.root.rglob("*.py") if not (set(p.relative_to(self.root).parts[:-1]) & SKIP_DIRS))
+        import os
+
+        from .jsscan import JS_EXT, JS_SKIP
+        skip = SKIP_DIRS | JS_SKIP
+        files = []
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith(".")]   # never walk node_modules
+            files += [Path(dirpath) / f for f in filenames if f.endswith((".py",) + JS_EXT)]
+        self.files = sorted(files)
 
     def _rel(self, p: Path) -> str:
         return p.relative_to(self.root).as_posix()

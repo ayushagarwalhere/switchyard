@@ -219,7 +219,7 @@ def _dispatch(args) -> int:
         if args.json:
             print(json.dumps(res, indent=2, default=str))
             return 0
-        print(f"{len(res['calls'])} LLM call site(s) in {res['files']} Python files ({res['loc']} lines)\n")
+        print(f"{len(res['calls'])} LLM call site(s) in {res['files']} source files ({res['loc']} lines)\n")
         for c in res["calls"]:
             schema = (c["params"].get("output_schema") or {}).get("name")
             extra = f"  -> {schema}" if schema else ""
@@ -396,9 +396,9 @@ def _run(args) -> int:
         testable = [c for c in wanted if not c.get("skip")]
         calls = testable[: args.max_sites]
         if not wanted:
-            print(f"No OpenAI, Anthropic, LiteLLM or LangChain calls found in {res['root']} ({res['files']} Python files).")
+            print(f"No OpenAI, Anthropic, LiteLLM or LangChain calls found in {res['root']} ({res['files']} Python/JS/TS files).")
             return 1
-        print(f"Found {len(wanted)} LLM call(s) in {res['files']} Python files:")
+        print(f"Found {len(wanted)} LLM call(s) in {res['files']} source files:")
         for c in calls:
             print(f"  {c['file']}:{c['line']:<5} {c['function'] or '(module)':<28} {c['model'] or c['model_expr'] or '?'}")
         if len(testable) > len(calls):
@@ -493,7 +493,7 @@ def _audit(args) -> int:
     from . import audit, onboard
     res = scanner.scan_repo(args.repo)
     log = (lambda *a: print(*a, file=sys.stderr)) if args.format != "text" or args.out else print
-    log(f"Auditing {len(res['calls'])} LLM call(s) in {res['files']} Python files")
+    log(f"Auditing {len(res['calls'])} LLM call(s) in {res['files']} source files")
     findings = audit.static(args.repo, res)
     if args.probes:
         n = sum(1 for c in res["calls"] if [v for v in c["variables"] if v != "history"])

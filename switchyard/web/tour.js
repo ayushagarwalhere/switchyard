@@ -54,8 +54,8 @@
     const sc = st.scan || {};
     return {
       title: `${sc.calls ?? sites.length} LLM calls. ${top.length === 1 ? "One model for all of them." : `${top.length} frontier models, no routing.`}`,
-      text: `Switchyard read ${sc.files ?? "–"} Python files (${(sc.loc ?? 0).toLocaleString()} lines) without running any of them, and found every OpenAI / Anthropic SDK call, with its prompt template, parameters and output schema. Today each one goes to ${top.map(([m]) => `<code>${esc(m)}</code>`).join(", ")}, whether it routes a request or writes an essay.`,
-      visual: `<div class="t-kpis">${kpi(sc.calls ?? sites.length, "LLM calls found")}${kpi(sc.files ?? "–", "Python files")}${kpi(top.length, top.length === 1 ? "model used" : "models used")}</div>
+      text: `Switchyard read ${sc.files ?? "–"} source files (${(sc.loc ?? 0).toLocaleString()} lines) without running any of them, and found every OpenAI / Anthropic SDK call, with its prompt template, parameters and output schema. Today each one goes to ${top.map(([m]) => `<code>${esc(m)}</code>`).join(", ")}, whether it routes a request or writes an essay.`,
+      visual: `<div class="t-kpis">${kpi(sc.calls ?? sites.length, "LLM calls found")}${kpi(sc.files ?? "–", "source files")}${kpi(top.length, top.length === 1 ? "model used" : "models used")}</div>
         <ul class="t-calls">${sites.map((s) => `<li><span class="t-fn">${esc(fnOf(s))}</span><span class="t-loc">${esc(s.site.file)}:${s.site.line}</span><span class="t-track"></span><code class="t-model">${esc(modelOf(s))}</code></li>`).join("")}</ul>`,
     };
   }
@@ -244,7 +244,7 @@ ${esc(pick.evidence)}` : ""}</pre></div>
       ch.map((c, i) => `<section class="t-chap" id="chap-${ids[i][0]}" data-chap="${ids[i][0]}">
         <div class="t-text"><div class="t-num">${String(i + 1).padStart(2, "0")} · ${esc(ids[i][1])}</div><h2>${esc(c.title)}</h2><p>${c.text}</p></div>
         <div class="t-visual"><div class="t-card">${c.visual}</div></div></section>`).join("") +
-      `<section class="t-end"><h2>Try it on your repo.</h2><p>Point Switchyard at any Python codebase that uses OpenAI, Anthropic, LiteLLM or LangChain. You get tests for every call, a decision per call, a security audit, and a patch you can review and apply.</p>
+      `<section class="t-end"><h2>Try it on your repo.</h2><p>Point Switchyard at any Python or JavaScript/TypeScript codebase that uses OpenAI, Anthropic, LiteLLM, LangChain or the Vercel AI SDK. You get tests for every call, a decision per call, a security audit, and a patch you can review and apply.</p>
         <div class="hero-cta"><a class="btn-glow" href="#app" data-scroll="#app" data-focus="#source">Try it on your repo</a>
         <a class="btn-ghost" href="#${esc(state.id)}" data-open-run="${esc(state.id)}">Open the full run</a>
         <a class="btn-ghost" href="https://github.com/ayushagarwalhere/switchyard" target="_blank" rel="noopener">GitHub repo</a></div>

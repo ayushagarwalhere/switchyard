@@ -10,7 +10,7 @@ Most AI apps send every request to one frontier model. Teams know that many of t
 
 ## What it does
 Point Switchyard at a repository. It:
-1. **Finds every LLM call** in the code (static analysis, nothing executed): OpenAI, Anthropic, LiteLLM and LangChain (`ChatOpenAI` traced through `prompt | llm` chains to its `ChatPromptTemplate`), including the prompt template, parameters and Pydantic output schema. Models handed to agent frameworks are listed and skipped with the reason, never tested on made-up prompts.
+1. **Finds every LLM call** in Python *and* JavaScript/TypeScript code (static analysis, nothing executed): OpenAI, Anthropic, LiteLLM, the Vercel AI SDK that most Next.js apps use, and LangChain (`ChatOpenAI` traced through `prompt | llm` chains to its `ChatPromptTemplate`), including the prompt template, parameters and Pydantic output schema. Models handed to agent frameworks are listed and skipped with the reason, never tested on made-up prompts.
 2. **Investigates each call** with a tool-using Nemotron 3 Super agent (search, read file): who calls it, with what real inputs, and which fields of the answer drive the app's logic. Then it writes down the call's contract.
 3. **Writes a test set per call** with Nemotron 3 Ultra (reasoning on): typical and tricky cases with ideal answers. Tavily supplies real-world inputs, and recorded production traffic can be used as the reference.
 4. **Runs a bake-off** of Nemotron Lightning, Super and Ultra on every case. Hard checks run in code (valid JSON, schema, labels, fields), plus a Nemotron grader. With an OpenAI key, the app's original model answers the same tests, so every switch comes with a head-to-head.
@@ -49,7 +49,7 @@ On [daveebbelaar/ai-cookbook](https://github.com/daveebbelaar/ai-cookbook) workf
 [fill from experience: e.g. how Lightning vs Super behaved on structured outputs, reasoning on/off trade-offs]
 
 ## What's next
-- TypeScript / JavaScript call sites.
+- Following prompts imported from other JavaScript modules when building test templates.
 - Fine-tuning a Nemotron model on Token Factory for call sites where no stock model passes, using the test set Switchyard already wrote.
 - A Nemotron safety-guard model as an extra detector for the audit probes.
 

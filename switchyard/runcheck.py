@@ -302,7 +302,12 @@ def verify(tf: TokenFactory, root: Path, sites: list[dict], manual: list[dict] |
     todo = [s for s in sites if s.get("status") == "done" and s["decision"]["action"] == "migrate"]
 
     def one(s):
-        if (s["site"]["file"], s["site"]["line"]) in by_hand:
+        if s["site"].get("lang") == "js":
+            site = s["site"]
+            r = {"id": site["id"], "file": site["file"], "line": site["line"], "function": site.get("function"),
+                 "model": config.MODELS[s["decision"]["model"]].id, "status": "skipped",
+                 "reason": "JavaScript/TypeScript isn't executed by Switchyard; the patch is syntax-checked, run your app's tests"}
+        elif (s["site"]["file"], s["site"]["line"]) in by_hand:
             site = s["site"]
             r = {"id": site["id"], "file": site["file"], "line": site["line"], "function": site.get("function"),
                  "model": config.MODELS[s["decision"]["model"]].id, "status": "skipped", "reason": "needs a manual port"}

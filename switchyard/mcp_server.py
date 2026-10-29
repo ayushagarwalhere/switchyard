@@ -15,7 +15,7 @@ from pathlib import Path
 from . import config, scanner
 
 INSTRUCTIONS = (
-    "Switchyard moves a Python app's LLM calls (OpenAI, Anthropic, LiteLLM, LangChain) to NVIDIA Nemotron "
+    "Switchyard moves a Python or JavaScript/TypeScript app's LLM calls (OpenAI, Anthropic, LiteLLM, LangChain, Vercel AI SDK) to NVIDIA Nemotron "
     "on Nebius Token Factory, keeping only switches that pass generated tests, and audits LLM calls for "
     "security problems. Typical flow: scan_llm_calls (free) -> show the user the calls and estimated cost -> "
     "start_migration only after the user agrees to a spend limit -> migration_status until done -> "
@@ -43,7 +43,7 @@ def _no_key() -> dict:
 
 
 def scan_llm_calls(path: str, tests_per_call: int = 8) -> dict:
-    """Find every LLM call in a Python project (static analysis, free, no key). Returns each call's file,
+    """Find every LLM call in a Python or JS/TS project (static analysis, free, no key). Returns each call's file,
     line, function, SDK, current model and prompt variables, which calls can't be tested and why, and the
     estimated Token Factory cost of testing them on Nemotron."""
     from .pipeline import estimate_cost

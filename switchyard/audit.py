@@ -59,7 +59,8 @@ def _mask(key: str) -> str:
 
 def scan_secrets(root: Path) -> list[dict]:
     out = []
-    for path in scanner.iter_python_files(root):
+    from .jsscan import iter_js_files
+    for path in [*scanner.iter_python_files(root), *iter_js_files(root)]:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -197,7 +198,9 @@ def scan_site(site: dict) -> list[dict]:
     for m in site.get("messages") or []:
         content = m.get("content", "")
         if m.get("role") == "system":
-            slots = scanner.PLACEHOLDER.findall(content)
+            # slots named like the developer's own prompt constants (codePrompt, SYSTEM_INSTRUCTIONS) aren't user input
+            slots = [x for x in scanner.PLACEHOLDER.findall(content)
+                     if not re.search(r"(?i)(prompt|instructions?|system|persona|guidelines|rules)$", x)]
             # a system prompt that *is* one parameter is the developer's own text, not user input
             if slots and not scanner.PLACEHOLDER.fullmatch(content.strip()):
                 out.append(_finding("AU3", "MEDIUM", file, line,

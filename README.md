@@ -6,7 +6,7 @@ Most production apps send every request to one frontier model. Many of those cal
 
 Switchyard answers that per call site. Point it at a repository and it:
 
-1. **Scans** the code (static analysis, nothing is executed) for every OpenAI / Anthropic SDK call (`chat.completions`, `responses.create/parse`, `beta…parse`, `messages.create`), including the prompt template, parameters and Pydantic output schema.
+1. **Scans** the code (static analysis, nothing is executed) for every LLM call. In Python: OpenAI and Anthropic SDK (`chat.completions`, `responses.create/parse`, `beta…parse`, `messages.create`), LiteLLM, and LangChain. In JavaScript/TypeScript: the OpenAI and Anthropic SDKs and the Vercel AI SDK (`generateText`, `streamText`, `generateObject`). It also recovers each call's prompt template, parameters and output schema.
 2. **Investigates** each call like an engineer: a Nemotron agent with read-only tools (search, read file) finds who calls it, with what real inputs, and which fields of the answer drive the app's logic.
 3. **Understands** each call: what task it does, what inputs look like, and how the app parses the answer.
 4. **Writes tests**: typical and tricky cases with ideal reference answers, seeded with the real inputs found in the code. **Tavily** supplies real-world material where the task needs it.
@@ -54,7 +54,7 @@ switchyard run        # finds every LLM call, tests it on Nemotron, writes the p
 `switchyard run` shows what it found and what it will cost before spending anything:
 
 ```
-Found 3 LLM call(s) in 1 Python files:
+Found 3 LLM call(s) in 1 source files:
   app.py:11    triage                       gpt-4o-mini
   app.py:21    extract_invoice              gpt-4o
   app.py:29    summarize                    pick_model()
@@ -205,7 +205,8 @@ _Filled in from a recorded run by `switchyard publish <run-id>`._
 
 ## Limits
 
-- Python only. OpenAI SDK calls are rewritten automatically. Plain Anthropic `messages.create()` calls are rewritten too: they go through a small shim that returns Anthropic-shaped responses from Token Factory. Async, streaming and tool-use Anthropic calls are tested and get a target model in the report, but you port them by hand.
+- Python and JavaScript/TypeScript. In Python, OpenAI SDK, LiteLLM and LangChain `ChatOpenAI` calls are rewritten automatically. Plain Anthropic `messages.create()` calls are rewritten too: they go through a small shim that returns Anthropic-shaped responses from Token Factory. Async, streaming and tool-use Anthropic calls are tested and get a target model in the report, but you port them by hand.
+- JavaScript/TypeScript (Next.js, Node, Vercel AI SDK): OpenAI SDK and AI SDK (`generateText`, `streamText`, `generateObject`, `streamObject`) calls are tested and rewritten; Anthropic SDK calls are tested and listed for a hand port. JS code isn't executed, so the runtime check and the `eval`/shell data-flow rule (AU2) are Python-only; edited JS files get a syntax check (`node --check` for .js, a bracket/string balance check for .ts).
 - Prompts built far from the call site are tested as a single user turn (the investigation step tells the test writer what the real inputs look like).
 - Running the patched code executes the repository's definitions (imports, classes, functions; top-level demo code is skipped) in a subprocess. It's on by default locally and off on the public demo. Turn it off with `--no-exec` or `SWITCHYARD_EXEC=0`.
 - Quality is measured against reference answers written by Nemotron Ultra with reasoning on, not against the original provider's outputs. If you have recorded production outputs, those make a stronger reference.

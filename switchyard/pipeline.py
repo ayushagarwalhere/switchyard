@@ -166,7 +166,7 @@ class Run:
                 self.state["checkout"] = co
                 self.state["commit"] = co["commit"]
             files = _git_files(path) if co else None
-            if files is not None:
+            if files:   # an empty list means the folder itself is gitignored: copy it as a plain folder
                 # only what git would commit: no gitignored .env files, data dumps or build output
                 for rel in files:
                     target = dest / rel
@@ -382,7 +382,7 @@ def baseline_key(tf, site: dict) -> str | None:
     if getattr(tf, "baseline", None) is None or not site.get("model"):
         return None
     openai_model = re.match(r"^(gpt-|o\d|chatgpt-)", site["model"]) is not None
-    if site["sdk"] in ("openai", "openai-responses", "langchain-openai") or (site["sdk"] in ("litellm", "langchain-init") and openai_model):
+    if site["sdk"] in ("openai", "openai-responses", "langchain-openai", "js-openai", "js-openai-responses") or             (site["sdk"] in ("litellm", "langchain-init", "js-ai-sdk") and openai_model):
         return f"{config.SOURCE_PREFIX}{site['model']}"
     return None
 

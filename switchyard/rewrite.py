@@ -218,6 +218,8 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
     if out_dir.exists():
         shutil.rmtree(out_dir)
     shutil.copytree(repo, out_dir, ignore=shutil.ignore_patterns(".git"))
+    js_sites = [s for s in sites if s["site"].get("lang") == "js"]
+    sites = [s for s in sites if s["site"].get("lang") != "js"]
     by_file: dict[str, list[dict]] = {}
     manual: list[dict] = []
     for s in sites:
@@ -230,7 +232,7 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                            "model": config.MODELS[s["decision"]["model"]].id, "reason": _manual_reason(s["site"])})
     clients_by_file: dict[str, list[dict]] = {}
     for c in scan["clients"]:
-        if c["sdk"].startswith("openai"):
+        if c["sdk"].startswith("openai") and not c.get("js"):
             clients_by_file.setdefault(c["file"], []).append(c)
 
     used_env: set[str] = set()
@@ -349,6 +351,14 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
             checks.append({"file": rel, "ok": False, "error": str(e)[:300]})
     for p in out_dir.rglob("__pycache__"):
         shutil.rmtree(p, ignore_errors=True)
+
+    if js_sites:
+        from .jsrewrite import apply_js
+        js = apply_js(out_dir, js_sites, scan["clients"], used_env)
+        changed += js["changed"]
+        routes += js["routes"]
+        manual += js["manual"]
+        checks += js["checks"]
 
     tests = None
     if run_tests and any((out_dir / d).exists() for d in ("tests", "test")):

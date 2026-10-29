@@ -122,7 +122,7 @@ async function runAudit(ev) {
   $("#empty").hidden = true;
   const view = $("#runView");
   view.hidden = false;
-  view.innerHTML = `<div class="card"><div class="pending"><span class="spin"></span> Cloning the Python files of <code>${esc(source)}</code> and auditing every LLM call…</div></div>`;
+  view.innerHTML = `<div class="card"><div class="pending"><span class="spin"></span> Cloning the source files of <code>${esc(source)}</code> and auditing every LLM call…</div></div>`;
   $("#auditBtn").disabled = true;
   try {
     const r = await fetch("/api/audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source }) });
@@ -247,7 +247,7 @@ function render(state) {
   const dur = state.finished ? `${Math.round(state.finished - state.started)}s` : "";
   const sc = state.scan;
   k("meta").innerHTML = [
-    sc ? `${sc.calls} LLM call${sc.calls === 1 ? "" : "s"} in ${sc.files} Python files (${sc.loc.toLocaleString()} lines)` : "",
+    sc ? `${sc.calls} LLM call${sc.calls === 1 ? "" : "s"} in ${sc.files} source files (${sc.loc.toLocaleString()} lines)` : "",
     state.commit ? `commit <code>${esc(state.commit)}</code>` : "",
     dur ? `took ${dur}` : "",
     state.error ? `<span class="bad">${esc(state.error)}</span>` : "",

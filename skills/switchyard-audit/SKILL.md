@@ -1,11 +1,11 @@
 ---
 name: switchyard-audit
-description: Audit a Python app's LLM calls (OpenAI, Anthropic, LiteLLM, LangChain) for security and reliability problems such as hard-coded API keys, model output reaching eval or a shell, prompt injection, system-prompt leaks, missing timeouts and token caps, and fix them. Use when the user asks to check an AI app before shipping, or asks whether their LLM code is safe.
+description: Audit a Python or JavaScript/TypeScript app's LLM calls (OpenAI, Anthropic, LiteLLM, LangChain) for security and reliability problems such as hard-coded API keys, model output reaching eval or a shell, prompt injection, system-prompt leaks, missing timeouts and token caps, and fix them. Use when the user asks to check an AI app before shipping, or asks whether their LLM code is safe.
 ---
 
 # Switchyard audit: is this LLM app safe to ship?
 
-`switchyard audit` checks every LLM call in a Python codebase. The static part is free, needs no
+`switchyard audit` checks every LLM call in a Python or JavaScript/TypeScript codebase. The static part is free, needs no
 key and never runs the app's code. The optional probes attack each prompt with injected
 instructions on NVIDIA Nemotron (a few cents) and verify a fix.
 

@@ -1,11 +1,11 @@
 ---
 name: switchyard
-description: Move a Python app's OpenAI, Anthropic, LiteLLM or LangChain calls to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, keeping only the switches that pass generated tests. Use when the user asks to cut LLM costs, migrate to Nemotron or Nebius Token Factory, or find which LLM calls a cheaper model can handle.
+description: Move a Python or JavaScript/TypeScript app's OpenAI, Anthropic, LiteLLM or LangChain calls to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, keeping only the switches that pass generated tests. Use when the user asks to cut LLM costs, migrate to Nemotron or Nebius Token Factory, or find which LLM calls a cheaper model can handle.
 ---
 
 # Switchyard: migrate LLM calls to Nemotron, with tests
 
-Switchyard is a command-line tool. It finds every LLM call in a Python codebase, writes tests for
+Switchyard is a command-line tool. It finds every LLM call in a Python or JavaScript/TypeScript codebase, writes tests for
 each one, runs them on three Nemotron models, and patches only the calls where a cheaper model
 matches the quality bar. Calls that don't pass stay on their original model.
 
@@ -43,8 +43,9 @@ switchyard run --dry-run
 No key and no spending. It lists each LLM call (file, line, function, current model) and prints an
 estimated Token Factory cost with the hard budget cap. Show the user the list and the estimate.
 
-If it finds no calls, tell the user which SDKs are supported (OpenAI, Anthropic, LiteLLM, LangChain
-`ChatOpenAI`/`ChatAnthropic`/`init_chat_model`, all Python) and stop.
+If it finds no calls, tell the user which SDKs are supported (Python: OpenAI, Anthropic, LiteLLM,
+LangChain `ChatOpenAI`/`ChatAnthropic`/`init_chat_model`; JavaScript/TypeScript: OpenAI SDK, Anthropic
+SDK, Vercel AI SDK `generateText`/`streamText`/`generateObject`) and stop.
 
 Useful options: `--include "app/**"` / `--exclude "tests/**"` to narrow the scan, `--tests 4` for a
 cheaper first pass, `--budget 1` to lower the cap (USD).
