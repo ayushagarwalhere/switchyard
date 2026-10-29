@@ -16,6 +16,7 @@
     ["repair", "Repair"],
     ["patch", "The patch"],
     ["run", "Run it for real"],
+    ["audit", "Attack it"],
     ["bill", "The bill"],
   ];
 
@@ -92,6 +93,28 @@
         ${pick?.code ? `<div class="t-code"><div class="t-cap">${esc(pick.function)}() · call ${pick.how === "agent" ? "written by Nemotron Super" : "built from the signature"}</div><pre>${esc(pick.code)}</pre></div>` : ""}
         ${(pick?.requests || []).length ? `<div class="t-env">${pick.requests.map((q) => `<code>POST ${esc(q.url)} · ${esc(q.model || "")}</code>`).join("")}</div>` : ""}
         ${pick?.preview ? `<div class="t-code"><div class="t-cap">Returned ${esc(pick.returned || "")}</div><pre>${esc(pick.preview)}</pre></div>` : ""}`,
+    };
+  }
+
+  function chAudit(st) {
+    const au = st.audit;
+    if (!au) {
+      return { title: "This run didn't include the security audit.", text: "Newer runs audit every LLM call: leaked keys, model output reaching eval/shell/SQL, user input in system prompts, and injection probes against each switched call on its new model.", visual: `<div class="t-empty">No audit in this run.</div>` };
+    }
+    const f = au.findings || [];
+    const probes = f.filter((x) => x.rule.startsWith("PR"));
+    const held = probes.filter((x) => x.fix_verified);
+    const sev = ["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((s) => [s, f.filter((x) => x.severity === s).length]).filter(([, n]) => n);
+    const pick = probes.find((x) => x.fix_verified) || probes[0] || f[0];
+    return {
+      title: au.probed ? (probes.length ? `${probes.length} attack${probes.length === 1 ? "" : "s"} got through; ${held.length} fix${held.length === 1 ? "" : "es"} re-tested and held.` : `Every switched prompt was attacked. None of the attacks worked.`) : `${f.length} finding${f.length === 1 ? "" : "s"} from the static audit.`,
+      text: `A cheaper model can be easier to talk out of its instructions, so cost isn't the only thing to check. Following the probe-and-detector design of NVIDIA's <b>garak</b>, Switchyard puts prompt-injection, system-prompt-extraction and exfiltration attacks into each variable the app fills, runs them on the call's <b>new Nemotron model</b>, and decides with deterministic detectors (a canary word, overlap with the system prompt, an attacker link). When an attack works, it adds an input rule in the style of <b>NeMo Guardrails</b> and runs the attack again, so the suggested fix comes with evidence. Static checks cover leaked keys, model output reaching eval/shell/SQL, missing timeouts and token caps.`,
+      visual: `<div class="t-checks">${sev.map(([s, n]) => `<span class="${s === "CRITICAL" || s === "HIGH" ? "bad" : ""}">${n} ${s.toLowerCase()}</span>`).join("") || '<span class="ok">✓ no findings</span>'}</div>
+        ${pick ? `<div class="t-code"><div class="t-cap">${esc(pick.rule)} ${esc(pick.title)} · ${esc(pick.file)}:${pick.line}</div><pre>${esc(pick.detail)}${pick.evidence ? `
+
+Model answered:
+${esc(pick.evidence)}` : ""}</pre></div>
+        <div class="t-env"><code>${pick.fix_verified ? "✓ fix re-tested: the attack no longer works" : "fix: " + esc(pick.fix.slice(0, 160))}</code></div>` : ""}`,
     };
   }
 
@@ -183,7 +206,7 @@
     const sum = st.summary || {};
     const u = st.usage || { by_role: {}, cost: 0, calls: 0 };
     const done = (st.sites || []).filter((s) => s.decision);
-    const roleName = { investigate: "Investigate the codebase", harness: "Write calls for the patched code", analyze: "Understand call sites", testgen: "Write tests + references", judge: "Grade outputs", repair: "Adapt prompts" };
+    const roleName = { investigate: "Investigate the codebase", harness: "Write calls for the patched code", audit: "Attack prompts (security probes)", analyze: "Understand call sites", testgen: "Write tests + references", judge: "Grade outputs", repair: "Adapt prompts" };
     const roles = Object.entries(u.by_role || {}).sort((a, b) => b[1].cost - a[1].cost);
     const maxRole = Math.max(1e-9, ...roles.map(([, r]) => r.cost));
     return {
@@ -211,7 +234,7 @@
     const s = pickSite(state);
     const ch = [chProblem(state)];
     if (s) ch.push(chCloseup(state, s), chTests(state, s), chBakeoff(state, s));
-    ch.push(chRepair(state), chPatch(state, s), chRun(state), chBill(state));
+    ch.push(chRepair(state), chPatch(state, s), chRun(state), chAudit(state), chBill(state));
     const ids = s ? CHAPTERS : CHAPTERS.filter(([id]) => !["closeup", "tests", "bakeoff"].includes(id));
     $t("#tourRail").innerHTML = ids.map(([id, label], i) => `<li><a href="#tour" data-chap="${id}"><span>${String(i + 1).padStart(2, "0")}</span>${label}</a></li>`).join("");
     body.innerHTML = `<header class="t-intro"><p class="hero-kicker"><span class="pulse-dot"></span> Judge tour · about 3 minutes</p>
@@ -221,11 +244,12 @@
       ch.map((c, i) => `<section class="t-chap" id="chap-${ids[i][0]}" data-chap="${ids[i][0]}">
         <div class="t-text"><div class="t-num">${String(i + 1).padStart(2, "0")} · ${esc(ids[i][1])}</div><h2>${esc(c.title)}</h2><p>${c.text}</p></div>
         <div class="t-visual"><div class="t-card">${c.visual}</div></div></section>`).join("") +
-      `<section class="t-end"><h2>Try it on your repo.</h2><p>Point Switchyard at any Python codebase that uses the OpenAI SDK. You get tests for every call, a decision per call, and a patch you can review and apply.</p>
+      `<section class="t-end"><h2>Try it on your repo.</h2><p>Point Switchyard at any Python codebase that uses OpenAI, Anthropic, LiteLLM or LangChain. You get tests for every call, a decision per call, a security audit, and a patch you can review and apply.</p>
         <div class="hero-cta"><a class="btn-glow" href="#app" data-scroll="#app" data-focus="#source">Try it on your repo</a>
         <a class="btn-ghost" href="#${esc(state.id)}" data-open-run="${esc(state.id)}">Open the full run</a>
         <a class="btn-ghost" href="https://github.com/ayushagarwalhere/switchyard" target="_blank" rel="noopener">GitHub repo</a></div>
-        <pre class="t-cmd">pip install -e . &amp;&amp; switchyard run https://github.com/owner/repo</pre></section>`;
+        <pre class="t-cmd">pipx install git+https://github.com/ayushagarwalhere/switchyard@v0.2.0
+switchyard setup &amp;&amp; switchyard run      # in your app's folder</pre></section>`;
     observe();
   }
 

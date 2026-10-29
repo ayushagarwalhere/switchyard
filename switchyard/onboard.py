@@ -27,7 +27,7 @@ def ask(question: str, default: bool = True) -> bool:
 
 def verify_key(key: str) -> list[str]:
     """List the Nemotron models this key can reach; raises with a readable message if it can't."""
-    from openai import OpenAI, AuthenticationError, APIConnectionError
+    from openai import APIConnectionError, APIStatusError, AuthenticationError, OpenAI
     client = OpenAI(base_url=config.DEFAULT_BASE_URL, api_key=key, timeout=30, max_retries=1)
     try:
         ids = [m.id for m in client.models.list().data]
@@ -35,6 +35,8 @@ def verify_key(key: str) -> list[str]:
         raise RuntimeError("Token Factory rejected this key (401). Copy it again from " + KEY_URL)
     except APIConnectionError as e:
         raise RuntimeError(f"couldn't reach {config.DEFAULT_BASE_URL}: {e}")
+    except APIStatusError as e:
+        raise RuntimeError(f"Token Factory answered {e.status_code} while listing models: {str(e)[:300]}")
     return [i for i in ids if "nemotron" in i.lower()]
 
 

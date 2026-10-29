@@ -16,14 +16,15 @@ def _git(repo, *a):
 
 
 @pytest.fixture
-def monorepo(tmp_path):
-    """A git repo whose LLM app lives in services/support/."""
+def monorepo(tmp_path, monkeypatch):
+    """A git repo whose LLM app lives in services/support/ (and the developer is in it)."""
     root = tmp_path / "mono"
     shutil.copytree(FIX, root / "services" / "support")
     (root / "README.md").write_text("hi\n")
     _git(root, "init", "-q", "-b", "main")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "init")
+    monkeypatch.chdir(root)
     return root
 
 
@@ -46,9 +47,11 @@ def test_run_in_subfolder_then_apply_with_no_arguments(offline, monorepo):
     assert res["branch"].startswith("switchyard/") and res["subdir"] == "services/support"
     assert "Nemotron" in (app / "app.py").read_text()
     assert (app / ".env.switchyard.example").exists()
-    wf = (monorepo / ".github" / "workflows" / "switchyard-check.yml").read_text()
+    wf = (monorepo / ".github" / "workflows" / "switchyard-check-services-support.yml").read_text()
     assert "secrets.NEBIUS_API_KEY" in wf and 'path: "services/support"' in wf
-    saved = json.loads((monorepo / ".switchyard" / "run.json").read_text())
+    assert 'run-file: ".switchyard/services/support/run.json"' in wf
+    saved = json.loads((monorepo / ".switchyard" / "services" / "support" / "run.json").read_text())
+    assert all("results" not in e for s in saved["sites"] for e in s["evals"].values())   # no model outputs
     assert "events" not in saved and "checkout" not in saved
     assert saved["source"] == "support"        # no absolute paths from the developer's machine
     assert saved["sites"] and saved["sites"][0]["cases"]
@@ -66,9 +69,13 @@ def test_check_reads_the_ci_copy(offline, monorepo):
     app = monorepo / "services" / "support"
     pipeline.Run(str(app), tests=4, use_tavily=False, execute=False).run()
     gitops.apply()
-    res = check_mod.check(str(monorepo / ".switchyard" / "run.json"), repo=str(app), emit=lambda *_: None)
+    res = check_mod.check(str(monorepo / ".switchyard" / "services" / "support" / "run.json"), repo=str(app), emit=lambda *_: None)
     assert res["ok"] and len(res["results"]) == 3
     assert not any(r.get("prompt_changed") for r in res["results"])
+    _git(monorepo, "add", "-A")
+    _git(monorepo, "commit", "-qm", "migrate")
+    check_mod.check(str(monorepo / ".switchyard" / "services" / "support" / "run.json"), repo=str(app), emit=lambda *_: None)
+    assert _git(monorepo, "status", "--porcelain") == ""      # checking never dirties the checkout
 
 
 def test_dry_run_needs_no_key(monkeypatch, capsys):
@@ -125,3 +132,93 @@ def test_python_api(offline, monorepo):
     assert res.ok and res.summary["migrated"] == 3 and res.patch_path and seen
     assert {d["function"]: d["to"] for d in res.decisions}["triage"] == "lightning"
     assert res.apply()["subdir"] == "services/support"
+
+
+def test_apply_twice_explains_instead_of_crashing(offline, monorepo):
+    app = monorepo / "services" / "support"
+    st = pipeline.Run(str(app), tests=4, use_tavily=False, execute=False).run()
+    gitops.apply()
+    _git(monorepo, "add", "-A")
+    _git(monorepo, "commit", "-qm", "migrate")
+    _git(monorepo, "checkout", "-q", "main")
+    with pytest.raises(RuntimeError, match="already exists"):
+        gitops.apply(st["id"])
+
+
+def test_latest_is_scoped_to_this_checkout(offline, monorepo, tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    shutil.copytree(FIX, other)
+    _git(other, "init", "-q", "-b", "main")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-qm", "init")
+    mine = pipeline.Run(str(monorepo / "services" / "support"), tests=4, use_tavily=False, execute=False).run()
+    pipeline.Run(str(other), tests=4, use_tavily=False, execute=False).run()        # newer, another project
+    monkeypatch.chdir(monorepo)
+    assert gitops.apply()["branch"].endswith(mine["id"])
+    assert _git(other, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"     # untouched
+
+
+def test_failed_apply_on_detached_head_restores_it(offline, monorepo):
+    app = monorepo / "services" / "support"
+    st = pipeline.Run(str(app), tests=4, use_tavily=False, execute=False).run()
+    sha = _git(monorepo, "rev-parse", "HEAD").strip()
+    (app / "app.py").write_text("print('rewritten since the scan')\n")
+    _git(monorepo, "commit", "-qam", "rewrite")
+    _git(monorepo, "checkout", "-q", "--detach")
+    with pytest.raises(RuntimeError, match="git apply failed"):
+        gitops.apply(st["id"])
+    assert _git(monorepo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "HEAD"
+    assert not _git(monorepo, "branch", "--list", "switchyard/*").strip()
+    assert sha
+
+
+def test_unrelated_changes_elsewhere_do_not_block_apply(offline, monorepo):
+    app = monorepo / "services" / "support"
+    pipeline.Run(str(app), tests=4, use_tavily=False, execute=False).run()
+    (monorepo / "README.md").write_text("work in progress\n")
+    assert gitops.apply()["subdir"] == "services/support"
+
+
+def test_blank_key_in_project_env_does_not_hide_saved_key(monkeypatch, tmp_path):
+    proj, home = tmp_path / "proj", tmp_path / "home"
+    proj.mkdir()
+    home.mkdir()
+    (proj / ".env").write_text("NEBIUS_API_KEY=\nOTHER_SETTING=x\n")
+    (home / ".env").write_text("NEBIUS_API_KEY=saved-key\n")
+    monkeypatch.chdir(proj)
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+    monkeypatch.delenv("OTHER_SETTING", raising=False)
+    monkeypatch.setattr(config, "USER_ENV", home / ".env")
+    config.load_env()
+    import os
+    assert os.environ["NEBIUS_API_KEY"] == "saved-key" and os.environ["OTHER_SETTING"] == "x"
+
+
+def test_never_spends_without_a_yes_outside_a_terminal(monkeypatch, capsys):
+    monkeypatch.setenv("NEBIUS_API_KEY", "k")
+    monkeypatch.setattr(onboard, "interactive", lambda: False)
+    monkeypatch.setattr(pipeline, "Run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("spent")))
+    assert cli.main(["run", str(FIX)]) == 2
+    assert "--yes" in capsys.readouterr().out
+
+
+def test_run_copies_only_what_git_would_commit(offline, monorepo):
+    app = monorepo / "services" / "support"
+    (monorepo / ".gitignore").write_text(".env\n")
+    (app / ".env").write_text("OPENAI_API_KEY=sk-secret\n")
+    st = pipeline.Run(str(app), tests=4, use_tavily=False, execute=False).run()
+    copied = pipeline.RUNS_DIR / st["id"] / "repo"
+    assert (copied / "app.py").exists() and not (copied / ".env").exists()
+
+
+def test_ci_command_adds_workflows(offline, monorepo, capsys):
+    app = monorepo / "services" / "support"
+    assert cli.main(["ci", str(app)]) == 0
+    audit_wf = monorepo / ".github" / "workflows" / "switchyard-audit-services-support.yml"
+    assert 'path: "services/support"' in audit_wf.read_text() and "upload-sarif" in audit_wf.read_text()
+    assert "check" not in capsys.readouterr().out          # no migration yet: audit only
+    pipeline.Run(str(app), tests=4, use_tavily=False, execute=False).run()
+    gitops.apply(ci=False)
+    assert cli.main(["ci", str(app)]) == 0
+    assert (monorepo / ".github" / "workflows" / "switchyard-check-services-support.yml").exists()
+    assert "NEBIUS_API_KEY" in capsys.readouterr().out

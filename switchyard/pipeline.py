@@ -41,6 +41,18 @@ def git_checkout(path: str | Path) -> dict | None:
             "dirty": bool(git("status", "--porcelain", "--", ".").stdout.strip())}
 
 
+def _git_files(path: Path) -> list[str] | None:
+    """Tracked plus untracked-but-not-ignored files under `path`, relative to it."""
+    try:
+        r = subprocess.run(["git", "-C", str(path), "ls-files", "-co", "--exclude-standard", "-z", "--", "."],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return [f for f in r.stdout.split("\0") if f and (path / f).is_file()]
+
+
 # Rough token counts per call site, from test runs. Used only for the up-front estimate.
 _EST = {  # role: (model key, calls per site, tokens in, tokens out)
     "investigate": ("super", 5, 3500, 350),
@@ -62,6 +74,9 @@ def estimate_cost(calls: list[dict], tests: int) -> float:
             total += tests * cand.cost(prompt, 400)
         total += tests * len(config.CANDIDATES) * m[config.ROLE_JUDGE].cost(prompt + 900, 200)
         total += m[config.ROLE_ANALYZE].cost(4000, 600)   # runtime harness, when it's needed
+        if [v for v in site.get("variables") or [] if v != "history"]:
+            # injection probes on the chosen model: up to 4 attacks x 3 variables, plus re-tests of hits
+            total += 16 * m["super"].cost(prompt + 200, 300)
     return round(total, 2)
 
 
@@ -69,7 +84,8 @@ class Run:
     def __init__(self, source: str, *, tests: int = 8, target: float = 0.85, budget: float = 2.0,
                  use_tavily: bool = True, max_sites: int = 12, emit=None, run_id: str | None = None,
                  include: list[str] | None = None, exclude: list[str] | None = None,
-                 traces_path: str | None = None, run_tests: bool = False, execute: bool | None = None):
+                 traces_path: str | None = None, run_tests: bool = False, execute: bool | None = None,
+                 audit: bool = True):
         self.id = run_id or time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
         self.source = source
         self.tests = tests
@@ -81,6 +97,7 @@ class Run:
         self.exclude = exclude or []
         self.traces_path = traces_path
         self.run_tests = run_tests
+        self.audit = audit
         # run the patched code for real (needs a key; off on the public demo unless allowed)
         self.execute = (runcheck.enabled() and bool(config.api_key())) if execute is None else execute
         self._save_lock = threading.Lock()
@@ -91,7 +108,8 @@ class Run:
         self.state: dict = {"id": self.id, "source": source, "status": "running", "started": time.time(),
                             "settings": {"tests": tests, "target": target, "budget": budget, "tavily": use_tavily,
                                          "include": self.include, "exclude": self.exclude,
-                                         "traces": bool(traces_path), "run_tests": run_tests, "execute": self.execute},
+                                         "traces": bool(traces_path), "run_tests": run_tests, "execute": self.execute,
+                                         "audit": audit},
                             "sites": [], "events": []}
 
     # -- events -------------------------------------------------------------
@@ -147,8 +165,19 @@ class Run:
                 # remembered so `switchyard apply` needs no arguments
                 self.state["checkout"] = co
                 self.state["commit"] = co["commit"]
-            shutil.copytree(path, dest, dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns(".git", ".venv", "venv", "node_modules", "__pycache__"))
+            files = _git_files(path) if co else None
+            if files is not None:
+                # only what git would commit: no gitignored .env files, data dumps or build output
+                for rel in files:
+                    target = dest / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.copy2(path / rel, target)
+                    except OSError:
+                        pass
+            else:
+                shutil.copytree(path, dest, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns(".git", ".venv", "venv", "node_modules", "__pycache__", ".env"))
         return dest
 
     def run(self) -> dict:
@@ -159,7 +188,11 @@ class Run:
             self.repo_dir = repo
             self.emit("step", step="scan", message="Scanning for LLM calls")
             scan = scanner.scan_repo(repo)
-            calls = [c for c in scan["calls"] if self._wanted(c["file"])][: self.max_sites]
+            wanted = [c for c in scan["calls"] if self._wanted(c["file"])]
+            self.state["skipped"] = [{"file": c["file"], "line": c["line"], "function": c["function"],
+                                      "model": c["model"] or c["model_expr"], "reason": c["skip"]}
+                                     for c in wanted if c.get("skip")]
+            calls = [c for c in wanted if not c.get("skip")][: self.max_sites]
             prod = traces.load(self.traces_path) if self.traces_path else []
             if prod:
                 self.emit("step", step="traces", message=f"Loaded {len(prod)} recorded production calls")
@@ -168,7 +201,9 @@ class Run:
             self.emit("scan", files=scan["files"], loc=scan["loc"], calls=len(scan["calls"]),
                       sites=[_site_header(c) for c in calls])
             if not calls:
-                raise RuntimeError("No OpenAI/Anthropic SDK calls found in this repository")
+                skipped = len(self.state["skipped"])
+                raise RuntimeError("No testable LLM calls found in this repository" +
+                                   (f" ({skipped} skipped: models driven by agent frameworks)" if skipped else ""))
             # sites run in parallel (2 at a time) so a run takes minutes, not tens of minutes
             with ThreadPoolExecutor(max_workers=2) as pool:
                 for site_state in pool.map(lambda c: self.process_site(tf, c, prod), calls):
@@ -182,6 +217,8 @@ class Run:
                 self.emit("step", step="runtime", message="Running the migrated code against Token Factory")
                 patch["runtime"] = runcheck.verify(tf, self.dir / "migrated", self.state["sites"], patch.get("manual"),
                                                    emit=lambda r: self.emit("runtime", **r))
+            if self.audit:
+                self.state["audit"] = self.run_audit(tf, repo, scan)
             self.state["summary"] = summarize_run(self.state["sites"])
             self.state["status"] = "done"
             self.state["pr_body"] = report.pr_body(self.state)
@@ -203,6 +240,27 @@ class Run:
             self.emit("done", status=self.state["status"], error=self.state.get("error"),
                       summary=self.state.get("summary"), usage=self.state.get("usage"))
         return self.state
+
+    def run_audit(self, tf: TokenFactory, repo: Path, scan: dict) -> dict:
+        """Static audit of the whole app (free), then injection probes on each switched call's new model."""
+        from . import audit
+        self.emit("step", step="audit", message="Auditing the LLM calls (keys, unsafe output use, prompt injection)")
+        findings = [f for f in audit.static(repo, scan) if self._wanted(f["file"])]
+        migrated = [s["site"] for s in self.state["sites"]
+                    if (s.get("decision") or {}).get("action") == "migrate"
+                    and [v for v in s["site"].get("variables") or [] if v != "history"]]
+        probed, notes = 0, []
+        if migrated:
+            done = []
+            findings += audit.probes(tf, {"calls": migrated}, run_state=self.state, notes=notes,
+                                     emit=lambda site, model, rs: (done.append(site["id"]), self.emit(
+                                         "probe", id=site["id"], model=model, attacks=len(rs),
+                                         hits=sum(1 for r in rs if r["hit"]))))
+            probed = len(done)
+        note = "; ".join(notes) or None
+        findings = audit.sort(findings)
+        self.emit("audit", findings=findings, probed=probed)
+        return {"findings": findings, "probed": probed, "note": note}
 
     def _wanted(self, rel: str) -> bool:
         if self.include and not any(fnmatch.fnmatch(rel, g) for g in self.include):
@@ -321,9 +379,12 @@ def _write_atomic(path: Path, data: str) -> None:
 
 def baseline_key(tf, site: dict) -> str | None:
     """`source:<model>` when the original model can be run for comparison (OpenAI SDK, literal model, key set)."""
-    if getattr(tf, "baseline", None) is None or not site["sdk"].startswith("openai") or site["sdk"] == "openai-legacy":
+    if getattr(tf, "baseline", None) is None or not site.get("model"):
         return None
-    return f"{config.SOURCE_PREFIX}{site['model']}" if site.get("model") else None
+    openai_model = re.match(r"^(gpt-|o\d|chatgpt-)", site["model"]) is not None
+    if site["sdk"] in ("openai", "openai-responses", "langchain-openai") or (site["sdk"] in ("litellm", "langchain-init") and openai_model):
+        return f"{config.SOURCE_PREFIX}{site['model']}"
+    return None
 
 
 def head_to_head(evals: dict, decision: dict, source_key: str) -> dict:

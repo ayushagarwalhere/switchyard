@@ -92,7 +92,9 @@ def generate_tests(tf: TokenFactory, site: dict, analysis: dict, n: int = 8, sou
 def render(messages: list[dict], inputs: dict) -> list[dict]:
     out = []
     for m in messages:
-        content = PLACEHOLDER.sub(lambda mm: inputs.get(mm.group(1), ""), m["content"])
+        content = PLACEHOLDER.sub(lambda mm: str(inputs.get(mm.group(1), "")), m["content"])
+        if m["role"] == "history" and not content.strip():
+            continue   # an empty conversation-history slot (MessagesPlaceholder, *history) adds nothing
         role = m["role"] if m["role"] in ("system", "user", "assistant", "developer") else "user"
         if role == "developer":
             role = "system"

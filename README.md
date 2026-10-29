@@ -59,7 +59,7 @@ Found 3 LLM call(s) in 1 Python files:
   app.py:21    extract_invoice              gpt-4o
   app.py:29    summarize                    pick_model()
 
-Testing them on Nemotron costs about $0.21 on Token Factory (8 tests per call; hard cap $2.00, set with --budget).
+Testing them on Nemotron costs about $0.23 on Token Factory (8 tests per call; hard cap $2.00, set with --budget).
 Start? [Y/n]
 ...                         (live progress: tests, scores, decisions per call)
 Apply the patch on a new branch of your checkout? [Y/n]
@@ -76,9 +76,57 @@ Answer yes and you get a `switchyard/nemotron-<run>` branch with the patch, `.en
 | Only test part of a monorepo | `switchyard run services/support` or `--include "app/**" --exclude "tests/**"` |
 | Try it on someone else's repo | `switchyard run https://github.com/owner/repo` (GitHub folder links work: `.../tree/main/some/dir`) |
 | Re-test the switched calls, e.g. after a prompt edit | `switchyard check` |
+| Audit every LLM call for security problems (free) | `switchyard audit` |
+| Add GitHub workflows (audit on PRs, check after a migration) | `switchyard ci` |
+| See what a run did | `switchyard show` |
 | Browse runs in the web app | `switchyard serve` |
 
 Keys can also come from your project's `.env` or the environment (`NEBIUS_API_KEY`; optional `TAVILY_API_KEY`, `OPENAI_API_KEY`). A project's `.env` wins over the saved key. If `OPENAI_API_KEY` is set, the app's current model answers the same tests as a baseline; turn that off with `SWITCHYARD_BASELINE=0`.
+
+### In your coding agent (Claude Code, Codex, Cursor, ...)
+
+Switchyard ships as agent skills, so you can just ask your coding agent to *"move my LLM calls to Nemotron"* or *"check my AI app before I ship"*:
+
+```bash
+npx skills add ayushagarwalhere/switchyard
+```
+
+| Skill | What your agent does with it |
+|---|---|
+| [`switchyard`](skills/switchyard/SKILL.md) | free dry run → shows you the cost → runs only after you say yes → reports per call → applies the patch on a branch |
+| [`switchyard-audit`](skills/switchyard-audit/SKILL.md) | finds leaked keys, model output reaching `eval`/shell/SQL, prompt-injection exposure, missing timeouts and token caps, then fixes what you pick |
+
+**MCP clients** (Cursor, Claude Desktop, Windsurf, VS Code): install with the MCP extra and add the server:
+
+```bash
+pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.2.0"
+```
+```json
+{"mcpServers": {"switchyard": {"command": "switchyard", "args": ["mcp"]}}}
+```
+
+Tools: `scan_llm_calls` and `audit_llm_calls` (free), `start_migration` → `migration_status` → `migration_results`, and `apply_migration`. `start_migration` won't run without a `max_spend_usd` the agent has to get from you.
+
+The skills never handle your API key (you type it into `switchyard setup` yourself), never spend without a yes, and never commit or push unless asked. Every push runs NVIDIA's [SkillSpector](https://github.com/NVIDIA/skillspector) on them in CI.
+
+### Is it safe to ship? `switchyard audit`
+
+```bash
+switchyard audit                 # free, no key: static checks on every LLM call
+switchyard audit --probes        # + attack each prompt on Nemotron and verify a fix (a few cents)
+switchyard audit --format sarif --out audit.sarif   # GitHub code scanning
+```
+
+| Rule | Finds |
+|---|---|
+| AU1 | API keys hard-coded in source (shown masked) |
+| AU2 | model output that reaches `eval`/`exec`, a shell or a SQL query |
+| AU3 | variables inside the system prompt |
+| AU4 / AU5 | no `max_tokens` / no client timeout |
+| AU6 | `json.loads` on model output with no error handling |
+| PR1 / PR2 / PR3 | probes: the model followed an injected instruction, leaked its system prompt, or emitted an exfiltration link |
+
+The probes follow [garak](https://github.com/NVIDIA/garak)'s probe-and-detector design, aimed at *your* prompt templates rather than a bare model. Switchyard knows which variables your code fills, puts each attack into each one, and checks the answer with a deterministic detector (canary string, system-prompt n-gram overlap, attacker domain). When an attack gets through, it adds an input rule in the spirit of [NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) to the system prompt and re-runs the attack. The finding says whether that fix held. In CI, [examples/switchyard-audit.yml](examples/switchyard-audit.yml) puts the findings in the repository's Security tab.
 
 ### No install: GitHub Actions
 
@@ -87,7 +135,7 @@ Add a `NEBIUS_API_KEY` repository secret, copy [examples/switchyard-migrate.yml]
 The CI guard is a single step, and `switchyard apply` adds it for you:
 
 ```yaml
-- uses: ayushagarwalhere/switchyard@main
+- uses: ayushagarwalhere/switchyard@v0.2.0
   with:
     nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
 ```
@@ -177,8 +225,11 @@ switchyard/
   server.py       FastAPI + server-sent events for the web app
   web/            the web app (vanilla JS + Three.js hero)
   onboard.py      `switchyard setup`: check and save keys
+  audit.py        static rules + garak-style probes, SARIF output
+  mcp_server.py   the same flows as MCP tools
   gitops.py       apply / pr: branch, patch, CI workflow, pull request
-action.yml        GitHub Action (CI guard, or migrate-and-open-a-PR)
+action.yml        GitHub Action (check / migrate / audit)
+skills/           agent skills for Claude Code, Codex, Cursor
 tests/          offline tests (a scripted stand-in for Token Factory)
 ```
 

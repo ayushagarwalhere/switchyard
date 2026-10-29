@@ -135,6 +135,69 @@ def get_pr(run_id: str):
     return PlainTextResponse(s.get("pr_body") or pr_body(s), media_type="text/markdown")
 
 
+class AuditRequest(BaseModel):
+    source: str
+
+
+GITHUB_RE = re.compile(r"^(https://github\.com/[\w.\-]+/[\w.\-]+?)(?:\.git)?(?:/tree/([\w.\-]+)(?:/([\w.\-/]*))?)?/?$")
+_audit_slots = threading.BoundedSemaphore(2)
+_audit_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _audit_clone(url: str, branch: str | None, dest: Path) -> None:
+    """Shallow, sparse clone of only the Python files: no history, no big assets, nothing executed."""
+    import subprocess
+    base = ["git", "-c", "core.longpaths=true"]
+    subprocess.run(base + ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--quiet"]
+                   + (["--branch", branch] if branch else []) + [url, str(dest)],
+                   check=True, capture_output=True, text=True, timeout=60)
+    subprocess.run(base + ["-C", str(dest), "sparse-checkout", "set", "--no-cone", "*.py"],
+                   check=True, capture_output=True, text=True, timeout=90)
+
+
+@app.post("/api/audit")
+def audit_repo(req: AuditRequest):
+    """Free static audit of a public GitHub repo (or a local folder when not public). No key needed."""
+    import shutil
+    import tempfile
+    import time as _time
+
+    from . import audit, scanner
+    src = req.source.strip()
+    m = GITHUB_RE.match(src)
+    if not m and (PUBLIC or not Path(src).is_dir()):
+        raise HTTPException(400, "Paste a public GitHub URL, e.g. https://github.com/owner/repo")
+    hit = _audit_cache.get(src)
+    if hit and _time.time() - hit[0] < 600:
+        return hit[1]
+    if not _audit_slots.acquire(timeout=30):
+        raise HTTPException(429, "Two audits are already running; try again in a moment")
+    tmp = Path(tempfile.mkdtemp(prefix="switchyard-audit-"))
+    try:
+        if m:
+            try:
+                _audit_clone(m.group(1), m.group(2), tmp / "repo")
+            except Exception as e:  # noqa: BLE001
+                raise HTTPException(400, f"couldn't clone that repository ({type(e).__name__})")
+            root = (tmp / "repo" / (m.group(3) or "")).resolve()
+            if not root.is_dir() or not root.is_relative_to((tmp / "repo").resolve()):
+                raise HTTPException(400, "that folder isn't in the repository")
+        else:
+            root = Path(src).resolve()
+        res = scanner.scan_repo(root)
+        findings = audit.static(root, res)
+        out = {"source": src, "files": res["files"], "lines": res["loc"],
+               "calls": [{"file": c["file"], "line": c["line"], "function": c["function"], "sdk": c["sdk"],
+                          "model": c["model"] or c["model_expr"], "skip": c.get("skip")} for c in res["calls"]],
+               "counts": {s: sum(1 for f in findings if f["severity"] == s) for s in audit.SEVERITY_ORDER},
+               "findings": findings[:200]}
+        _audit_cache[src] = (_time.time(), out)
+        return out
+    finally:
+        _audit_slots.release()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "live": bool(config.api_key()), "running": sum(1 for r in LIVE.values() if r.state["status"] == "running")}

@@ -15,7 +15,7 @@ let CFG = null;
 let current = null;      // run id on screen
 let es = null;           // EventSource
 let refetchTimer = null;
-const STEPS = [["scan", "Scan"], ["analyze", "Understand"], ["testgen", "Write tests"], ["eval", "Evaluate"], ["repair", "Repair"], ["decision", "Decide"], ["patch", "Patch"], ["runtime", "Run code"]];
+const STEPS = [["scan", "Scan"], ["analyze", "Understand"], ["testgen", "Write tests"], ["eval", "Evaluate"], ["repair", "Repair"], ["decision", "Decide"], ["patch", "Patch"], ["runtime", "Run code"], ["audit", "Audit"]];
 const MODEL_LABEL = { lightning: "Lightning", super: "Super", ultra: "Ultra" };
 
 /* theme ----------------------------------------------------------------- */
@@ -42,6 +42,7 @@ async function boot() {
   $("#tests").oninput = (e) => ($("#testsOut").textContent = e.target.value);
   $("#target").oninput = (e) => ($("#targetOut").textContent = `${e.target.value}%`);
   $("#runForm").onsubmit = startRun;
+  $("#auditForm").onsubmit = runAudit;
   await loadRuns();
   const fromHash = location.hash.slice(1);
   window.addEventListener("hashchange", () => {
@@ -53,7 +54,10 @@ async function boot() {
     window.Tour?.open();
     const featured = window._runs?.find((r) => r.featured);
     if (featured) openRun(featured.id, { keepHash: true });
-  } else if (fromHash) openRun(fromHash);
+  } else if (fromHash) {
+    const [rid, tab] = fromHash.split(":");          // #<run> or #<run>:<tab> (sites, patch, savings, spend, log)
+    openRun(rid, { tab, keepHash: !!tab });
+  }
   else {
     const featured = window._runs?.find((r) => r.featured);
     if (featured) openRun(featured.id);
@@ -107,6 +111,51 @@ async function startRun(ev) {
   }
 }
 
+/* free audit -------------------------------------------------------------- */
+async function runAudit(ev) {
+  ev.preventDefault();
+  const source = $("#auditSource").value.trim();
+  stopReplay();
+  if (es) { es.close(); es = null; }
+  current = null;
+  $$("#runList button").forEach((b) => b.classList.remove("active"));
+  $("#empty").hidden = true;
+  const view = $("#runView");
+  view.hidden = false;
+  view.innerHTML = `<div class="card"><div class="pending"><span class="spin"></span> Cloning the Python files of <code>${esc(source)}</code> and auditing every LLM call…</div></div>`;
+  $("#auditBtn").disabled = true;
+  try {
+    const r = await fetch("/api/audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "audit failed");
+    view.innerHTML = auditPage(j);
+  } catch (e) {
+    view.innerHTML = `<div class="card"><h3>Audit failed</h3><p class="bad">${esc(e.message)}</p></div>`;
+  } finally {
+    $("#auditBtn").disabled = false;
+  }
+}
+
+function auditPage(a) {
+  const sevClass = { CRITICAL: "bad", HIGH: "bad", MEDIUM: "warn", LOW: "muted" };
+  const counts = Object.entries(a.counts).filter(([, n]) => n);
+  const testable = a.calls.filter((c) => !c.skip);
+  const rows = a.findings.map((x) => `<div class="rt-row"><span class="${sevClass[x.severity]}">${esc(x.severity)}</span>
+      <div class="rt-body"><b>${esc(x.rule)} ${esc(x.title)}</b> · <code>${esc(x.file)}:${+x.line}</code>${x.function ? ` <span class="muted">${esc(x.function)}</span>` : ""}
+      <div class="small">${esc(x.detail)}</div><div class="small muted">Fix: ${esc(x.fix)}</div></div></div>`).join("");
+  const calls = a.calls.map((c) => `<tr><td><code>${esc(c.file)}:${+c.line}</code></td><td>${esc(c.function || "(module)")}</td><td><code>${esc(c.sdk)}</code></td><td><code>${esc(c.model || "?")}</code></td><td class="small muted">${c.skip ? "agent loop: not testable with single prompts" : ""}</td></tr>`).join("");
+  return `<div class="card" style="margin-bottom:14px"><p class="eyebrow">FREE SECURITY AUDIT</p><h2 style="margin:4px 0">${esc(a.source)}</h2>
+      <p class="muted small">${a.calls.length} LLM call${a.calls.length === 1 ? "" : "s"} in ${a.files} Python file${a.files === 1 ? "" : "s"} (${a.lines} lines). Static analysis only: the code was read, never run.</p>
+      <p>${counts.length ? counts.map(([s, n]) => `<span class="${sevClass[s]}">${n} ${s.toLowerCase()}</span>`).join(" · ") : '<span class="ok">No findings.</span>'}</p></div>
+    ${rows ? `<div class="card runtime" style="margin-bottom:14px"><h3>Findings</h3>${rows}</div>` : ""}
+    ${calls ? `<div class="card" style="margin-bottom:14px"><h3>LLM calls found</h3><table class="simple"><thead><tr><th>Where</th><th>Function</th><th>SDK</th><th>Model</th><th></th></tr></thead><tbody>${calls}</tbody></table></div>` : ""}
+    <div class="card"><h3>Next</h3><p class="small">Attack each prompt with injection probes on Nemotron, and test which calls can move to a cheaper model:</p>
+      <pre class="mono small apply-cmd">pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.2.0"
+switchyard setup
+switchyard audit --probes        # in the app's folder
+switchyard run${testable.length ? `                   # ${testable.length} call${testable.length === 1 ? "" : "s"} to test` : ""}</pre></div>`;
+}
+
 /* run view -------------------------------------------------------------- */
 async function openRun(id, opts = {}) {
   stopReplay();
@@ -126,6 +175,7 @@ async function openRun(id, opts = {}) {
   }));
   render(state);
   setupRunHeader(view, state);
+  if (opts.tab) $(`.tabs button[data-tab="${opts.tab}"]`, view)?.click();
   if (state.status === "running") {
     es = new EventSource(`/api/runs/${id}/events`);
     es.onmessage = () => scheduleRefetch(id);
@@ -161,6 +211,7 @@ function fold(state) {
     else if (ev.kind === "runtime") ensure(ev.id).runtime = ev;
     else if (ev.kind === "step" && ev.step === "rewrite") phase = "patch";
     else if (ev.kind === "step" && ev.step === "runtime") phase = "runtime";
+    else if (ev.kind === "step" && ev.step === "audit") phase = "audit";
     else if (ev.kind === "done") phase = "done";
   }
   for (const rec of state.sites || []) {
@@ -329,6 +380,26 @@ function runtimeLine(r) {
   return `<div class="runtime ${cls}"><b>${icon} ${label}</b>${extra}</div>`;
 }
 
+function auditView(state) {
+  const au = state.audit;
+  const skipped = state.skipped || [];
+  if (!au && !skipped.length) return "";
+  const f = (au && au.findings) || [];
+  const sevClass = { CRITICAL: "bad", HIGH: "bad", MEDIUM: "warn", LOW: "muted" };
+  const counts = ["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((s) => [s, f.filter((x) => x.severity === s).length]).filter(([, n]) => n);
+  const rows = f.slice(0, 40).map((x) => `<div class="rt-row"><span class="${sevClass[x.severity]}">${esc(x.severity)}</span>
+      <div class="rt-body"><b>${esc(x.rule)} ${esc(x.title)}</b> · <code>${esc(x.file)}:${x.line}</code>${x.function ? ` <span class="muted">${esc(x.function)}</span>` : ""}
+      <div class="small">${esc(x.detail)}</div>
+      <div class="small muted">Fix: ${esc(x.fix)}${x.fix_verified ? ' <span class="ok">✓ re-tested, the attack no longer works</span>' : ""}</div>
+      ${x.evidence ? `<details class="small"><summary>What the model answered</summary><pre class="mono small" style="white-space:pre-wrap">${esc(x.evidence)}</pre></details>` : ""}</div></div>`).join("");
+  const probed = au && au.probed ? `<p class="small">Injection, system-prompt-leak and exfiltration probes ran on the new model of ${au.probed} switched call(s) — ${f.some((x) => x.rule.startsWith("PR")) ? "see the PR findings." : '<span class="ok">none got through.</span>'}</p>` : "";
+  const skip = skipped.length ? `<div class="small" style="margin-top:10px"><b>Not tested</b>${skipped.map((k) => `<div><code>${esc(k.file)}:${k.line}</code> ${esc(k.function || "")}: <span class="muted">${esc(k.reason)}</span></div>`).join("")}</div>` : "";
+  return `<div class="card runtime" style="margin-bottom:14px"><h3>Security audit</h3>
+    ${au ? `<p class="small">${counts.length ? counts.map(([s, n]) => `<span class="${sevClass[s]}">${n} ${s.toLowerCase()}</span>`).join(" · ") : '<span class="ok">No findings.</span>'}
+      <span class="muted"> · static checks for leaked keys, model output reaching eval/shell/SQL, user input in system prompts, missing timeouts and token caps.</span></p>` : ""}
+    ${probed}${au && au.note ? `<p class="small warn">${esc(au.note)}</p>` : ""}${rows}${skip}</div>`;
+}
+
 function runtimeView(state) {
   const rt = state.patch?.runtime;
   if (!rt) {
@@ -393,6 +464,7 @@ function patchView(state) {
     ${manual}${notes}
   </div>
   ${runtimeView(state)}
+  ${auditView(state)}
   ${pr}
   ${routes ? `<div class="card" style="margin-bottom:14px"><table class="simple"><thead><tr><th>Call site</th><th>Was</th><th>Now</th><th>Override</th></tr></thead><tbody>${routes}</tbody></table></div>` : ""}
   <div class="diff-wrap"><button class="copy-btn diff-copy" data-copy="diff">Copy patch</button><div class="diff">${diffHtml(p.diff || "")}</div></div>`;
@@ -566,7 +638,7 @@ function bindCalc(view, state, vm) {
 function spendView(state) {
   const u = state.usage;
   if (!u) return `<p class="muted">Spend appears when the run finishes.</p>`;
-  const roleName = { investigate: "Investigate the codebase", harness: "Write calls for the patched code", analyze: "Understand call sites", testgen: "Write tests + reference answers", judge: "Grade outputs", repair: "Adapt prompts" };
+  const roleName = { investigate: "Investigate the codebase", harness: "Write calls for the patched code", audit: "Attack prompts (security probes)", analyze: "Understand call sites", testgen: "Write tests + reference answers", judge: "Grade outputs", repair: "Adapt prompts" };
   const rows = Object.entries(u.by_role).sort((a, b) => b[1].cost - a[1].cost).map(([role, r]) => {
     const label = role.startsWith("candidate:") ? `Candidate runs: ${MODEL_LABEL[role.split(":")[1]] || role}` : roleName[role] || role;
     return `<tr><td>${esc(label)}</td><td>${chip(r.model)}</td><td>${r.calls}</td><td>${r.tokens_in.toLocaleString()}</td><td>${r.tokens_out.toLocaleString()}</td><td>${usd(r.cost, 4)}</td></tr>`;

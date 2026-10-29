@@ -10,6 +10,10 @@ All commands:
   switchyard apply  [run] [checkout]       apply the latest patch on a new branch (no commit)
   switchyard pr     [run] [checkout]       apply + commit + push + open a GitHub PR (gh CLI)
   switchyard check  [run] --repo .         CI guard: re-run saved tests, fail on drift
+  switchyard show   [run]                  what a run switched, kept, spent and verified
+  switchyard audit  [path] [--probes]      security/reliability findings per LLM call (SARIF for GitHub)
+  switchyard mcp                           MCP server for Cursor, Claude Desktop and other agents
+  switchyard ci     [path]                 add GitHub workflows (audit on PRs; check after a migration)
   switchyard traces --langsmith <project>  export recorded calls to use as references
   switchyard review <run>                  human check of the grader (Toloka-ready TSV)
   switchyard publish <run>                 feature a run in the web app + write README results
@@ -58,6 +62,14 @@ def _print_event(ev: dict) -> None:
     elif k == "runtime":
         icon = {"verified": "ok  ", "failed": "FAIL", "unverified": "??  "}.get(ev["status"], "skip")
         print(f"{t} [{icon}] ran {ev['file']}:{ev['line']} {ev.get('function') or ''}: {ev.get('reason', '')}")
+    elif k == "probe":
+        print(f"{t} {ev['id']} probed on {ev['model']}: {ev['attacks']} injection/leak/exfiltration attacks, "
+              f"{ev['hits']} got through")
+    elif k == "audit":
+        f = ev["findings"]
+        counts = {sev: sum(1 for x in f if x["severity"] == sev) for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW")}
+        print(f"{t} audit: " + (", ".join(f"{n} {sev.lower()}" for sev, n in counts.items() if n) or "no findings")
+              + "  (details: switchyard audit)")
     elif k == "done":
         print(f"{t} {ev['status']}" + (f": {ev['error']}" if ev.get("error") else ""))
         if ev.get("usage"):
@@ -72,12 +84,37 @@ and proves each switch with tests before changing any code.
   3. switchyard apply      put the patch on a new git branch (or: switchyard run --pr)
 
 Free first look, no key needed:  switchyard run --dry-run
+Is it safe to ship? (free):      switchyard audit
 All commands:                    switchyard --help"""
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from . import __version__
     ap = argparse.ArgumentParser(prog="switchyard", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", action="version", version=f"switchyard {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    au = sub.add_parser("audit", help="security and reliability audit of every LLM call (static part is free)")
+    au.add_argument("repo", nargs="?", default=".")
+    au.add_argument("--probes", action="store_true",
+                    help="also attack each prompt with injection / leak / exfiltration probes on Nemotron (a few cents)")
+    au.add_argument("--model", default="lightning", choices=[m.key for m in config.CANDIDATES],
+                    help="model to probe when a call hasn't been migrated (default lightning)")
+    au.add_argument("--format", choices=["text", "md", "json", "sarif"], default="text")
+    au.add_argument("--out", help="write the report to this file (SARIF works with GitHub code scanning)")
+    au.add_argument("--fail-on", choices=["critical", "high", "medium", "low", "never"], default="high",
+                    help="exit 1 when a finding is at least this severe (default high)")
+    au.add_argument("--budget", type=float, default=0.5)
+    au.add_argument("-y", "--yes", action="store_true", help="don't ask before running probes")
+
+    ci = sub.add_parser("ci", help="add GitHub workflows: audit on every PR (+ the check guard after a migration)")
+    ci.add_argument("path", nargs="?", default=".")
+
+    sub.add_parser("mcp", help="run as an MCP server (stdio) for Cursor, Claude Desktop and other MCP clients")
+
+    sh = sub.add_parser("show", help="results of a run: what switched, what stayed, cost, verification")
+    sh.add_argument("run", nargs="?", default="latest", help="run id or folder (default: this checkout's latest)")
+    sh.add_argument("--json", action="store_true", help="machine-readable summary")
 
     s = sub.add_parser("scan", help="list LLM call sites (no API calls)")
     s.add_argument("repo", nargs="?", default=".")
@@ -101,6 +138,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--apply", action="store_true", help="when done, apply the patch on a new branch of your checkout")
     r.add_argument("--pr", action="store_true", help="when done, apply, push and open a pull request (gh CLI)")
     r.add_argument("--dry-run", action="store_true", help="scan and estimate cost, then stop (no key needed)")
+    r.add_argument("--no-ci", action="store_true", help="with --apply/--pr: don't add the CI workflow file")
+    r.add_argument("--no-audit", action="store_true", help="skip the security audit and injection probes")
 
     c = sub.add_parser("check", help="re-run a migration's saved tests (CI regression guard)")
     c.add_argument("run", nargs="?", help="run id, run folder or run.json (default: .switchyard/run.json, else latest)")
@@ -196,12 +235,33 @@ def _dispatch(args) -> int:
     if args.cmd == "run":
         return _run(args)
 
+    if args.cmd == "show":
+        return _show(args)
+
+    if args.cmd == "audit":
+        return _audit(args)
+
+    if args.cmd == "ci":
+        from .gitops import add_ci
+        written = add_ci(args.path)
+        if not written:
+            print("Workflows already present; nothing to add.")
+            return 0
+        for w in written:
+            print(f"added {w}")
+        if any("switchyard-check" in w for w in written):
+            print("The check workflow needs a NEBIUS_API_KEY repository secret (Settings -> Secrets -> Actions).")
+        print("Commit them to turn them on.")
+        return 0
+
+    if args.cmd == "mcp":
+        from .mcp_server import main as mcp_main
+        mcp_main()
+        return 0
+
     if args.cmd == "check":
         from .check import check
-        ref = args.run
-        if ref is None:
-            from pathlib import Path
-            ref = ".switchyard/run.json" if Path(".switchyard/run.json").exists() else "latest"
+        ref = args.run or _saved_run_file()
         res = check(ref, repo=args.repo, target=args.target, budget=args.budget)
         bad = sum(1 for r in res["results"] if r["status"] != "ok")
         _step_summary(_check_markdown(res))
@@ -289,14 +349,36 @@ def _dispatch(args) -> int:
     return 1
 
 
+def _saved_run_file() -> str:
+    """The tests `apply` saved for the app in this folder, else this checkout's latest run."""
+    from pathlib import Path
+
+    from .gitops import _latest_for, ci_paths, toplevel
+    top = toplevel(".")
+    if top:
+        rel = Path(".").resolve().relative_to(top).as_posix()
+        for sub in ([] if rel == "." else [rel]) + [""]:
+            p = top / ci_paths(sub)[0]
+            if p.exists():
+                return str(p)
+    elif Path(".switchyard/run.json").exists():
+        return ".switchyard/run.json"
+    return _latest_for(Path("."))
+
+
 def _print_applied(res: dict) -> None:
     print(f"\nApplied on new branch {res['branch']} in {res['root']}:")
     for c in res["changed"]:
         print(f"  {c}")
+    ci = (f"; CI re-runs them via {res['workflow']} (add a NEBIUS_API_KEY repo secret)" if res.get("workflow")
+          else "; re-test any time with `switchyard check`")
     print("\nNext:\n  git diff                      review the change"
           "\n  .env.switchyard.example       the env vars the patched code reads (NEBIUS_API_KEY, model ids)"
-          "\n  .switchyard/run.json          the saved tests; CI re-runs them via .github/workflows/switchyard-check.yml"
+          f"\n  {res['run_file']:<29} the saved tests{ci}"
           f"\n  PR description:               {res['pr_body']}")
+    if res.get("traces"):
+        print(f"\nNote: this run used recorded production calls as tests, so {res['run_file']} contains those\n"
+              "inputs. Review it before committing, or leave it out and keep the run locally.")
 
 
 def _run(args) -> int:
@@ -306,17 +388,28 @@ def _run(args) -> int:
     src = args.repo
     local = not src.startswith(("http://", "https://", "git@"))
     if local:
+        import fnmatch
         res = scanner.scan_repo(src)
-        calls = res["calls"][: args.max_sites]
-        if not res["calls"]:
-            print(f"No OpenAI or Anthropic SDK calls found in {res['root']} ({res['files']} Python files).")
+        wanted = [c for c in res["calls"]
+                  if (not args.include or any(fnmatch.fnmatch(c["file"], g) for g in args.include))
+                  and not any(fnmatch.fnmatch(c["file"], g) for g in args.exclude)]
+        testable = [c for c in wanted if not c.get("skip")]
+        calls = testable[: args.max_sites]
+        if not wanted:
+            print(f"No OpenAI, Anthropic, LiteLLM or LangChain calls found in {res['root']} ({res['files']} Python files).")
             return 1
-        est = estimate_cost(calls, args.tests)
-        print(f"Found {len(res['calls'])} LLM call(s) in {res['files']} Python files:")
+        print(f"Found {len(wanted)} LLM call(s) in {res['files']} Python files:")
         for c in calls:
             print(f"  {c['file']}:{c['line']:<5} {c['function'] or '(module)':<28} {c['model'] or c['model_expr'] or '?'}")
-        if len(res["calls"]) > len(calls):
+        if len(testable) > len(calls):
             print(f"  ... testing the first {len(calls)} (raise with --max-sites)")
+        for c in wanted:
+            if c.get("skip"):
+                print(f"  skip  {c['file']}:{c['line']} {c['function'] or ''}: {c['skip']}")
+        if not calls:
+            print("\nNothing Switchyard can test with single prompts here.")
+            return 1
+        est = estimate_cost(calls, args.tests)
         print(f"\nTesting them on Nemotron costs about ${est:.2f} on Token Factory "
               f"({args.tests} tests per call; hard cap ${args.budget:.2f}, set with --budget).")
         co = git_checkout(src)
@@ -330,13 +423,18 @@ def _run(args) -> int:
         return 2
     if not onboard.ensure_key():
         return 2
-    if local and not args.yes and not onboard.ask("Start?"):
-        return 0
+    if not args.yes:
+        if not onboard.interactive():
+            # never spend without a yes: piped output, CI, or a console Python can't prompt in
+            print("Add --yes to start the run (nothing was spent).")
+            return 2
+        if not onboard.ask("Start?"):
+            return 0
 
     run = Run(src, tests=args.tests, target=args.target, budget=args.budget,
               use_tavily=not args.no_tavily, max_sites=args.max_sites, emit=_print_event,
               include=args.include, exclude=args.exclude, traces_path=args.traces, run_tests=args.run_tests,
-              execute=False if args.no_exec else None)
+              execute=False if args.no_exec else None, audit=not args.no_audit)
     state = run.run()
     print(f"\nRun saved to {run.dir}")
     if state["status"] != "done":
@@ -352,10 +450,12 @@ def _run(args) -> int:
         # a URL run: the patch is for whoever has a clone
         print(f"Next:    switchyard apply {run.id} <path to your clone>   (or `switchyard pr ...`)")
         return 0
+    ci = not args.no_ci
     if args.pr:
-        print(f"\nPull request: {open_pr(run.id)}")
-    elif args.apply or (onboard.interactive() and onboard.ask("\nApply the patch on a new branch of your checkout?")):
-        _print_applied(apply(run.id))
+        print(f"\nPull request: {open_pr(run.id, ci=ci)}")
+    elif args.apply or (onboard.interactive() and not state["checkout"].get("dirty")
+                        and onboard.ask("\nApply the patch on a new branch of your checkout?")):
+        _print_applied(apply(run.id, ci=ci))
     else:
         print("Next:    switchyard apply      (or `switchyard pr` to open a pull request)")
     return 0
@@ -385,6 +485,92 @@ def _check_markdown(res: dict) -> str:
         for f in r.get("failures", [])[:3]:
             rows.append(f"| | | | | case {f['case']}: {str(f['reason'])[:120]} |")
     return "\n".join(rows)
+
+
+def _audit(args) -> int:
+    from pathlib import Path
+
+    from . import audit, onboard
+    res = scanner.scan_repo(args.repo)
+    log = (lambda *a: print(*a, file=sys.stderr)) if args.format != "text" or args.out else print
+    log(f"Auditing {len(res['calls'])} LLM call(s) in {res['files']} Python files")
+    findings = audit.static(args.repo, res)
+    if args.probes:
+        n = sum(1 for c in res["calls"] if [v for v in c["variables"] if v != "history"])
+        if not n:
+            log("No call takes user-controlled input; nothing to probe.")
+        elif onboard.ensure_key(out=log):
+            if not args.yes and not (onboard.interactive() and onboard.ask(
+                    f"Probe {n} call(s) with injection, leak and exfiltration attacks on Token Factory "
+                    f"(about ${0.002 * n:.2f}, cap ${args.budget:.2f})?")):
+                log("Probes skipped (add --yes to run them without asking).")
+            else:
+                from .llm import TokenFactory
+                state = None
+                try:
+                    from .check import load_run
+                    from .gitops import _latest_for
+                    state, _ = load_run(_latest_for(Path(args.repo)))
+                except (FileNotFoundError, RuntimeError, ValueError):
+                    pass
+                tf = TokenFactory(budget_usd=args.budget)
+
+                def progress(site, model, rs):
+                    hits = sum(1 for r in rs if r["hit"])
+                    log(f"  probed {site['file']}:{site['line']} {site.get('function') or ''} on {model}: "
+                        f"{len(rs)} attacks, {hits} got through")
+                notes: list = []
+                findings = audit.sort(findings + audit.probes(tf, res, args.model, state, emit=progress, notes=notes))
+                for n_ in notes:
+                    log(f"  {n_}")
+                log(f"  probes cost ${tf.usage.to_dict()['cost']:.4f}")
+    from .gitops import toplevel
+    top = toplevel(args.repo)
+    prefix = Path(args.repo).resolve().relative_to(top).as_posix() if top else ""
+    body = {"text": audit.text, "md": audit.markdown, "sarif": lambda f: audit.sarif(f, prefix),
+            "json": lambda f: json.dumps(f, indent=1)}[args.format](findings)
+    if args.out:
+        Path(args.out).write_text(body + "\n", encoding="utf-8")
+        log(f"Wrote {len(findings)} finding(s) to {args.out}")
+    else:
+        print(body)
+    _step_summary(audit.markdown(findings))
+    if args.fail_on == "never" or not findings:
+        return 0
+    limit = audit.SEVERITY_ORDER.index(args.fail_on.upper())
+    return 1 if audit.SEVERITY_ORDER.index(audit.worst(findings)) <= limit else 0
+
+
+def _show(args) -> int:
+    from pathlib import Path
+
+    from . import Result
+    from .check import load_run
+    from .gitops import _latest_for
+    ref = args.run
+    if ref in (None, "", "latest"):
+        ref = _latest_for(Path("."))
+    state, run_dir = load_run(ref)
+    res = Result(state, run_dir)
+    runtime = ((state.get("patch") or {}).get("runtime")) or []
+    rt = {k: sum(1 for r in runtime if r.get("status") == k) for k in ("verified", "failed", "unverified", "skipped")}
+    if args.json:
+        print(json.dumps({"id": res.id, "status": state.get("status"), "error": state.get("error"),
+                          "summary": res.summary, "decisions": res.decisions, "runtime": rt,
+                          "cost_usd": round(res.cost, 4), "patch": str(res.patch_path) if res.patch_path else None,
+                          "report": str(run_dir / "PR.md") if (run_dir / "PR.md").exists() else None,
+                          "manual": (state.get("patch") or {}).get("manual", [])}, indent=1))
+        return 0
+    print(f"Run {res.id}: {state.get('status')}" + (f" ({state['error']})" if state.get("error") else "")
+          + f", spent ${res.cost:.4f} on Token Factory")
+    _print_summary(state)
+    if runtime:
+        print(f"\nRan the patched code: {rt['verified']} verified, {rt['failed']} failed, {rt['unverified']} unverified")
+    for m in (state.get("patch") or {}).get("manual", []):
+        print(f"  manual  {m['file']}:{m['line']}  -> {m['model']}  ({m['reason']})")
+    if res.patch_path:
+        print(f"\nPatch:   {res.patch_path}\nReport:  {run_dir / 'PR.md'}")
+    return 0
 
 
 def _print_summary(state: dict) -> None:

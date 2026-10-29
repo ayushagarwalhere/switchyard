@@ -1,0 +1,34 @@
+# Security and reliability audit of every LLM call, shown in the repo's Security tab.
+# Copy to .github/workflows/switchyard-audit.yml. The static audit needs no key.
+# Set probes: "true" (and a NEBIUS_API_KEY secret) to also attack each prompt with
+# injection, leak and exfiltration probes on Nemotron.
+name: switchyard-audit
+on:
+  push:
+    branches: [main]
+    paths: ["**/*.py"]
+  pull_request:
+    paths: ["**/*.py"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ayushagarwalhere/switchyard@v0.2.0
+        id: audit
+        with:
+          command: audit
+          probes: "false"
+          nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
+          fail-on: critical
+      - uses: github/codeql-action/upload-sarif@v3
+        # fork PRs get a read-only token and can't upload; the audit step still reports in the log
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif-file }}

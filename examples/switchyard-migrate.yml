@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ayushagarwalhere/switchyard@main
+      - uses: ayushagarwalhere/switchyard@v0.2.0
         with:
           command: migrate
           nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}

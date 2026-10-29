@@ -8,6 +8,7 @@ import ast
 import hashlib
 import os
 import re
+import warnings
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -23,8 +24,18 @@ CALL_PATTERNS: list[tuple[tuple[str, ...], str]] = [  # longest first: receiver 
     (("responses", "parse"), "openai-responses"),
     (("messages", "create"), "anthropic"),
 ]
+# LangChain chat models: the model is fixed where the object is built; prompts arrive via
+# `prompt | llm` chains or `llm.invoke(...)`, which the scanner follows by name.
+LANGCHAIN_CTORS = {"ChatOpenAI": "langchain-openai", "AzureChatOpenAI": "langchain-openai",
+                   "ChatAnthropic": "langchain-anthropic", "init_chat_model": "langchain-init"}
+LC_ROLES = {"human": "user", "user": "user", "ai": "assistant", "assistant": "assistant",
+            "system": "system", "placeholder": "history"}
+LC_PROMPT_TAKERS = {"LLMChain", "create_stuff_documents_chain", "load_summarize_chain", "create_extraction_chain"}
+LC_INVOKE = {"invoke", "ainvoke", "stream", "astream", "batch", "abatch", "predict"}
 CLIENT_CTORS = {"OpenAI": "openai", "AsyncOpenAI": "openai", "AzureOpenAI": "openai-azure",
                 "AsyncAzureOpenAI": "openai-azure", "Anthropic": "anthropic", "AsyncAnthropic": "anthropic"}
+LLM_HINT = re.compile(r"openai|anthropic|litellm|completions|messages\.create|responses\.(?:create|parse)|"
+                      r"ChatOpenAI|ChatAnthropic|init_chat_model|claude", re.I)
 PLACEHOLDER = re.compile(r"\{\{([^{}]+)\}\}")
 
 
@@ -64,6 +75,7 @@ class CallSite:
     call_span: tuple[int, int, int, int] | None = None
     receiver_span: tuple[int, int, int, int] | None = None  # e.g. `self.client` in self.client.chat.completions.create
     awaited: bool = False
+    skip: str | None = None           # why this site can't be tested with single prompts (e.g. an agent loop)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -81,8 +93,23 @@ def _attr_chain(node: ast.AST) -> list[str]:
     return list(reversed(parts))
 
 
-def _match_call(node: ast.Call, anthropic_names: frozenset = frozenset()) -> tuple[str, str] | None:
+def _litellm_names(nodes: list[ast.AST]) -> tuple[frozenset, frozenset]:
+    """(functions imported from litellm, names the litellm module is bound to)."""
+    funcs, mods = set(), set()
+    for node in nodes:
+        if isinstance(node, ast.ImportFrom) and node.module == "litellm":
+            funcs.update(a.asname or a.name for a in node.names if a.name in ("completion", "acompletion"))
+        elif isinstance(node, ast.Import):
+            mods.update(a.asname or a.name for a in node.names if a.name == "litellm")
+    return frozenset(funcs), frozenset(mods)
+
+
+def _match_call(node: ast.Call, anthropic_names: frozenset = frozenset(),
+                litellm: tuple[frozenset, frozenset] = (frozenset(), frozenset())) -> tuple[str, str] | None:
     chain = _attr_chain(node.func)
+    if (len(chain) == 1 and chain[0] in litellm[0]) or \
+            (len(chain) == 2 and chain[0] in litellm[1] and chain[1] in ("completion", "acompletion")):
+        return "litellm", "completion"
     for pattern, sdk in CALL_PATTERNS:
         if tuple(chain[-len(pattern):]) == pattern:
             # `messages.create` is common in non-LLM code; require an anthropic-ish receiver
@@ -97,10 +124,10 @@ def _looks_anthropic(chain: list[str]) -> bool:
     return any(k in head for k in ("anthropic", "claude", "client", "llm", "beta", "haiku", "sonnet", "opus"))
 
 
-def _anthropic_names(tree: ast.Module) -> frozenset:
+def _anthropic_names(nodes: list[ast.AST]) -> frozenset:
     """Names assigned from Anthropic()/AsyncAnthropic() anywhere in the file (`haiku = Anthropic()`, `self.ai = ...`)."""
     names = set()
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Call):
             ctor = _attr_chain(node.value.func)
             if ctor and ctor[-1] in ("Anthropic", "AsyncAnthropic", "AnthropicBedrock", "AnthropicVertex"):
@@ -204,6 +231,10 @@ class _Resolver:
             for elt in node.elts:
                 if isinstance(elt, ast.Name) and isinstance(scope.get(elt.id), ast.Dict):
                     elt = scope[elt.id]          # SYSTEM = {"role": "system", "content": "..."}
+                lc = self._lc_message(elt, scope)
+                if lc is not None:
+                    msgs.append(lc)
+                    continue
                 if isinstance(elt, ast.Starred):
                     inner = self.messages(elt.value, scope, depth + 1)
                     if inner is not None:
@@ -225,6 +256,65 @@ class _Resolver:
                 else:
                     msgs.append({"role": "user", "content": "{{" + _slot_name(ast.get_source_segment(self.src, elt) or "message") + "}}"})
             return msgs
+        return None
+
+    # -- LangChain ------------------------------------------------------------
+    def lc_template(self, node: ast.AST, scope: dict[str, ast.AST]) -> str:
+        """A LangChain prompt template string: `{var}` slots become `{{var}}`."""
+        t = self.text(node, scope)
+        if t is None:
+            return "{{" + _slot_name(ast.get_source_segment(self.src, node) or "input") + "}}"
+        t = re.sub(r"(?<!\{)\{(\w+)\}(?!\})", r"{{\1}}", t)
+        return t.replace("{ {", "{").replace("} }", "}")      # LangChain's {{ }} escapes are literal braces
+
+    def _lc_message(self, elt: ast.AST, scope: dict[str, ast.AST]) -> dict | None:
+        """("system", "..."), SystemMessage(content=...), MessagesPlaceholder("history"), ...PromptTemplate.from_template(...)"""
+        if isinstance(elt, ast.Tuple) and len(elt.elts) == 2 and isinstance(elt.elts[0], ast.Constant) \
+                and str(elt.elts[0].value) in LC_ROLES:
+            role = LC_ROLES[str(elt.elts[0].value)]
+            if role == "history":
+                return {"role": "history", "content": self.lc_template(elt.elts[1], scope)}
+            return {"role": role, "content": self.lc_template(elt.elts[1], scope)}
+        if not isinstance(elt, ast.Call):
+            return None
+        name = (_attr_chain(elt.func) or [""])[-1]
+        arg = elt.args[0] if elt.args else next((k.value for k in elt.keywords if k.arg in ("content", "template", "variable_name")), None)
+        if name in ("SystemMessage", "HumanMessage", "AIMessage") and arg is not None:
+            role = {"SystemMessage": "system", "HumanMessage": "user", "AIMessage": "assistant"}[name]
+            return {"role": role, "content": self._content(arg, scope)}
+        if name == "MessagesPlaceholder":
+            var = arg.value if isinstance(arg, ast.Constant) else "history"
+            return {"role": "history", "content": "{{" + _slot_name(str(var)) + "}}"}
+        if name == "from_template" and len(_attr_chain(elt.func)) >= 2 and arg is not None:
+            owner = _attr_chain(elt.func)[-2]
+            role = {"SystemMessagePromptTemplate": "system", "AIMessagePromptTemplate": "assistant"}.get(owner, "user")
+            return {"role": role, "content": self.lc_template(arg, scope)}
+        return None
+
+    def lc_prompt(self, node: ast.AST | None, scope: dict[str, ast.AST], depth: int = 0) -> list[dict] | None:
+        """Messages for whatever feeds a chat model: a prompt template, a message list, or a plain string."""
+        if node is None or depth > 4:
+            return None
+        if isinstance(node, ast.Name) and node.id in scope and scope[node.id] is not node:
+            return self.lc_prompt(scope[node.id], scope, depth + 1)
+        if isinstance(node, ast.Call):
+            chain = _attr_chain(node.func)
+            name = chain[-1] if chain else ""
+            arg = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg in ("messages", "template")), None)
+            if name in ("from_messages", "ChatPromptTemplate") and arg is not None:
+                return self.messages(arg, scope)
+            if name in ("from_template", "PromptTemplate") and arg is not None:
+                return [{"role": "user", "content": self.lc_template(arg, scope)}]
+            if name in ("format_messages", "format_prompt", "invoke", "to_messages") and isinstance(node.func, ast.Attribute):
+                return self.lc_prompt(node.func.value, scope, depth + 1)   # prompt.format_messages(...)
+            if name == "format" and isinstance(node.func, ast.Attribute):
+                inner = self.lc_prompt(node.func.value, scope, depth + 1)
+                return inner if inner is not None else [{"role": "user", "content": self._content(node, scope)}]
+            return None
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return self.messages(node, scope)
+        if isinstance(node, (ast.Constant, ast.JoinedStr, ast.BinOp)) or isinstance(node, ast.Name):
+            return [{"role": "user", "content": self._content(node, scope)}]
         return None
 
     def _content(self, v: ast.AST, scope: dict[str, ast.AST]) -> str:
@@ -271,14 +361,22 @@ def _literal_or_src(src: str, node: ast.AST):
 
 def scan_file(path: Path, root: Path) -> tuple[list[CallSite], list[ClientSite]]:
     try:
-        src = path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(src)
+        src = path.read_text(encoding="utf-8-sig", errors="replace")   # -sig: files saved with a BOM
+    except OSError:
+        return [], []
+    if not LLM_HINT.search(src):
+        return [], []           # most files never mention an LLM library: skip parsing them
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")      # invalid escapes etc. in the scanned code aren't our business
+            tree = ast.parse(src)
     except (SyntaxError, ValueError):
         return [], []
     rel = path.relative_to(root).as_posix()
     resolver = _Resolver(src, tree)
+    nodes = list(ast.walk(tree))     # walk once, reuse everywhere below
     parents: dict[ast.AST, ast.AST] = {}
-    for node in ast.walk(tree):
+    for node in nodes:
         for child in ast.iter_child_nodes(node):
             parents[child] = node
 
@@ -291,18 +389,124 @@ def scan_file(path: Path, root: Path) -> tuple[list[CallSite], list[ClientSite]]
 
     calls: list[CallSite] = []
     clients: list[ClientSite] = []
-    anthropic_names = _anthropic_names(tree)
-    for node in ast.walk(tree):
+    anthropic_names = _anthropic_names(nodes)
+    litellm = _litellm_names(nodes)
+
+    def langchain_site(node: ast.Call, ctor: str) -> CallSite:
+        kw = {k.arg: k.value for k in node.keywords if k.arg}
+        notes: list[str] = []
+        # the model
+        mnode = kw.get("model") or kw.get("model_name") or (node.args[0] if ctor == "init_chat_model" and node.args else None)
+        func = enclosing_func(node)
+        scope = resolver.scope_for(func)
+        model = None
+        if isinstance(mnode, ast.Constant) and isinstance(mnode.value, str):
+            model = mnode.value.split(":", 1)[-1] if ":" in mnode.value else mnode.value
+        elif isinstance(mnode, ast.Name) and isinstance(scope.get(mnode.id), ast.Constant):
+            model = scope[mnode.id].value if isinstance(scope[mnode.id].value, str) else None
+        elif _env_default(mnode, scope):
+            model = _env_default(mnode, scope)
+        # what the model object is called, so its uses can be found
+        target, parent = None, parents.get(node)
+        if isinstance(parent, (ast.Assign, ast.AnnAssign)):
+            tg = parent.targets[0] if isinstance(parent, ast.Assign) else parent.target
+            target = ".".join(_attr_chain(tg)) or None
+        aliases = {target} if target else set()
+        # a model held in a local variable is only visible inside its own function
+        region = list(ast.walk(func)) if func is not None and target and "." not in target else nodes
+        for n in region:   # structured = llm.with_structured_output(X) / llm.bind(...)
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Attribute) \
+                    and n.value.func.attr in ("with_structured_output", "bind", "bind_tools", "with_retry") \
+                    and ".".join(_attr_chain(n.value.func.value)) in aliases:
+                aliases.add(".".join(_attr_chain(n.targets[0])))
+        msgs, used_in, schema_name, uses = None, None, None, 0
+
+        def is_llm(e: ast.AST) -> bool:
+            return e is node or (bool(aliases) and ".".join(_attr_chain(e)) in aliases) or \
+                (isinstance(e, ast.Call) and isinstance(e.func, ast.Attribute) and is_llm(e.func.value))
+
+        for n in region:
+            found = None
+            if isinstance(n, ast.BinOp) and isinstance(n.op, ast.BitOr) and not isinstance(parents.get(n), ast.BinOp):
+                ops, cur = [], n          # flatten  a | b | c
+                while isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.BitOr):
+                    ops.insert(0, cur.right)
+                    cur = cur.left
+                ops.insert(0, cur)
+                for i, op in enumerate(ops):
+                    if i and is_llm(op):
+                        found = ops[i - 1]
+                        break
+            elif isinstance(n, ast.Call) and (_attr_chain(n.func) or [""])[-1] in LC_PROMPT_TAKERS:
+                # LLMChain(llm=llm, prompt=P), create_stuff_documents_chain(llm, P)
+                args = list(n.args) + [k.value for k in n.keywords if k.arg in ("llm", "model")]
+                if any(is_llm(a) for a in args):
+                    found = next((k.value for k in n.keywords if k.arg == "prompt"), n.args[1] if len(n.args) > 1 else None)
+            elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+                if n.func.attr in LC_INVOKE and is_llm(n.func.value) and n.args:
+                    found = n.args[0]
+                elif n.func.attr == "with_structured_output" and is_llm(n.func.value) and n.args \
+                        and isinstance(n.args[0], ast.Name):
+                    schema_name = n.args[0].id
+            if found is not None:
+                uses += 1
+                if msgs is None:
+                    where = enclosing_func(n)
+                    msgs = resolver.lc_prompt(found, resolver.scope_for(where))
+                    if msgs is not None:
+                        used_in = where
+        if uses > 1:
+            notes.append(f"model object used in {uses} places; tested with the first prompt found")
+        skip = None
+        if msgs is None:
+            # handed to an agent framework (create_react_agent(llm, ...), Agent(llm=llm), ...)?
+            for n in region:
+                if isinstance(n, ast.Call) and n is not node and not (
+                        isinstance(n.func, ast.Attribute) and n.func.attr in LC_INVOKE | {"with_structured_output", "bind", "bind_tools"}):
+                    if any(is_llm(a) for a in list(n.args) + [k.value for k in n.keywords]):
+                        callee = ".".join(_attr_chain(n.func)) or "another object"
+                        skip = (f"passed to {callee}() on line {n.lineno}, which drives it in an agent loop; "
+                                "single-prompt tests can't judge that, so it's left as is")
+                        break
+            msgs = [{"role": "user", "content": "{{input}}"}]
+            notes.append(skip or "LangChain prompt not found statically; tests fill a single user turn")
+        params = {k: _literal_or_src(src, kw[k]) for k in ("temperature", "max_tokens", "max_completion_tokens",
+                                                            "top_p", "seed", "stop") if k in kw}
+        if schema_name:
+            schema = pydantic_schema(tree, schema_name)
+            if schema:
+                params["output_schema"] = {"name": schema_name, "schema": schema}
+                notes.append(f"structured output: Pydantic model {schema_name}")
+        home = used_in or func
+        variables = sorted({m for msg in msgs for m in PLACEHOLDER.findall(msg.get("content", ""))})
+        snippet = ast.get_source_segment(src, node) or ""
+        return CallSite(
+            id=hashlib.sha1(f"{rel}:{node.lineno}:{snippet}".encode()).hexdigest()[:8], file=rel, line=node.lineno,
+            end_line=node.end_lineno or node.lineno, sdk=LANGCHAIN_CTORS[ctor], method=ctor,
+            function=home.name if home is not None else None, model=model,
+            model_expr=ast.get_source_segment(src, mnode) if mnode is not None else None, model_span=None,
+            messages=msgs, variables=variables, params=params, snippet=snippet,
+            context=_trim(ast.get_source_segment(src, home) if home is not None else snippet, 120),
+            notes=notes, arg_spans={k.arg: (k.value.lineno, k.value.col_offset, k.value.end_lineno, k.value.end_col_offset)
+                                    for k in node.keywords if k.arg},
+            call_span=(node.lineno, node.col_offset, node.end_lineno, node.end_col_offset),
+            docstring=ast.get_docstring(home) if isinstance(home, (ast.FunctionDef, ast.AsyncFunctionDef)) else None,
+            skip=skip)
+
+    for node in nodes:
         if not isinstance(node, ast.Call):
             continue
         chain = _attr_chain(node.func)
+        if chain and chain[-1] in LANGCHAIN_CTORS:
+            calls.append(langchain_site(node, chain[-1]))
+            continue
         if chain and chain[-1] in CLIENT_CTORS:
             clients.append(ClientSite(rel, node.lineno, node.end_lineno or node.lineno, node.col_offset,
                                       node.end_col_offset or 0, chain[-1], CLIENT_CTORS[chain[-1]],
                                       ast.get_source_segment(src, node) or "",
                                       [k.arg for k in node.keywords]))
             continue
-        match = _match_call(node, anthropic_names)
+        match = _match_call(node, anthropic_names, litellm)
         if not match:
             continue
         sdk, method = match
@@ -353,7 +557,7 @@ def scan_file(path: Path, root: Path) -> tuple[list[CallSite], list[ClientSite]]
             notes.append("messages are built dynamically; tests fill them as a single user turn")
 
         params = {}
-        for name in ("temperature", "max_tokens", "max_completion_tokens", "top_p", "response_format",
+        for name in ("temperature", "max_tokens", "max_completion_tokens", "max_output_tokens", "top_p", "response_format",
                      "tools", "tool_choice", "stream", "n", "seed", "stop", "text_format", "response_model"):
             if name in kw:
                 params[name] = _literal_or_src(src, kw[name])

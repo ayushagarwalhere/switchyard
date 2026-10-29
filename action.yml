@@ -7,10 +7,10 @@ branding:
 
 inputs:
   nebius-api-key:
-    description: Nebius Token Factory API key (store it as a repository secret).
-    required: true
+    description: Nebius Token Factory API key (store it as a repository secret). Not needed for a static audit.
+    default: ""
   command:
-    description: "check: re-run the saved tests and fail on drift. migrate: test every LLM call and open a pull request."
+    description: "check: re-run the saved tests and fail on drift. migrate: test every LLM call and open a pull request. audit: security and reliability findings as SARIF."
     default: check
   path:
     description: Folder of the app, relative to the repository root.
@@ -27,6 +27,12 @@ inputs:
   tavily-api-key:
     description: "migrate: optional Tavily key for realistic test inputs."
     default: ""
+  probes:
+    description: "audit: also run prompt-injection / leak / exfiltration probes on Nemotron (needs the key)."
+    default: "false"
+  fail-on:
+    description: "audit: fail the job when a finding is at least this severe (critical, high, medium, low, never)."
+    default: high
   python-version:
     description: Python used to run Switchyard.
     default: "3.12"
@@ -35,6 +41,9 @@ outputs:
   pr-url:
     description: "migrate: the pull request that was opened."
     value: ${{ steps.migrate.outputs.pr-url }}
+  sarif-file:
+    description: "audit: path of the SARIF report (upload it with github/codeql-action/upload-sarif)."
+    value: ${{ steps.audit.outputs.sarif-file }}
 
 runs:
   using: composite
@@ -51,6 +60,7 @@ runs:
       if: inputs.command == 'check'
       shell: bash
       env:
+        PYTHONUNBUFFERED: "1"
         NEBIUS_API_KEY: ${{ inputs.nebius-api-key }}
         RUN_FILE: ${{ inputs.run-file }}
         APP_PATH: ${{ inputs.path }}
@@ -62,6 +72,7 @@ runs:
       if: inputs.command == 'migrate'
       shell: bash
       env:
+        PYTHONUNBUFFERED: "1"
         NEBIUS_API_KEY: ${{ inputs.nebius-api-key }}
         TAVILY_API_KEY: ${{ inputs.tavily-api-key }}
         GH_TOKEN: ${{ github.token }}
@@ -72,6 +83,28 @@ runs:
         git config user.name "switchyard[bot]"
         git config user.email "switchyard-bot@users.noreply.github.com"
         tavily=""; [ -z "$TAVILY_API_KEY" ] && tavily="--no-tavily"
-        switchyard run "$APP_PATH" --yes --pr --budget "$BUDGET" --tests "$TESTS" $tavily | tee "$RUNNER_TEMP/switchyard.log"
+        switchyard run "$APP_PATH" --yes --pr --no-ci --budget "$BUDGET" --tests "$TESTS" $tavily | tee "$RUNNER_TEMP/switchyard.log"
         url=$(grep -o "Pull request: https://[^ ]*" "$RUNNER_TEMP/switchyard.log" | sed 's/Pull request: //' || true)
         echo "pr-url=$url" >> "$GITHUB_OUTPUT"
+
+    - name: Audit the LLM calls
+      id: audit
+      if: inputs.command == 'audit'
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: "1"
+        NEBIUS_API_KEY: ${{ inputs.nebius-api-key }}
+        APP_PATH: ${{ inputs.path }}
+        BUDGET: ${{ inputs.budget || '0.50' }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        PROBES: ${{ inputs.probes }}
+      run: |
+        out="$RUNNER_TEMP/switchyard-audit.sarif"
+        echo "sarif-file=$out" >> "$GITHUB_OUTPUT"
+        probes=""; [ "$PROBES" = "true" ] && probes="--probes --yes"
+        status=0
+        switchyard audit "$APP_PATH" $probes --budget "$BUDGET" --format sarif --out "$out" --fail-on "$FAIL_ON" || status=$?
+        if [ ! -s "$out" ]; then
+          echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Switchyard audit","rules":[]}},"results":[]}]}' > "$out"
+        fi
+        exit $status

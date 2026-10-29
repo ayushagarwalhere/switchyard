@@ -1,0 +1,40 @@
+# Switchyard's own CI: the offline test suite on Linux and Windows, and NVIDIA SkillSpector
+# on the agent skills in skills/ (static scan; fails on a DO_NOT_INSTALL score).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev,mcp]"
+      - run: git config --global user.name ci && git config --global user.email ci@example.com
+      - run: python -m pytest
+
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install NVIDIA SkillSpector
+        run: python -m pip install "git+https://github.com/NVIDIA/skillspector.git@v2.13.2"
+      - name: Scan the agent skills
+        run: |
+          skillspector scan skills/ --recursive --no-llm --format markdown --output skillspector.md || true
+          cat skillspector.md >> "$GITHUB_STEP_SUMMARY" || true
+          skillspector scan skills/ --recursive --no-llm

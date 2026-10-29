@@ -275,3 +275,8 @@ table.models td:first-child .chip { white-space: normal; text-align: left; }
 .inv code { font-size: .76rem; }
 .chip.m-source { color: var(--muted); border-color: var(--muted); background: transparent; }
 .h2h { margin-top: 8px; font-size: .8rem; }
+
+/* secondary full-width action (free audit) */
+button.secondary { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; transition: background .3s, transform .35s cubic-bezier(.2, .8, .2, 1); }
+button.secondary:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 14%, transparent); transform: translateY(-1px); }
+button.secondary:disabled { opacity: .45; cursor: progress; }

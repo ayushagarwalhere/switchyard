@@ -12,7 +12,7 @@
    - running the patched code for real,
    - the bill.
 2. Press **Replay run** on the recorded run to watch the whole pipeline replay at speed.
-3. Open the **Patch** tab: this is the actual diff Switchyard produced, with compile checks and per-call env overrides.
+3. Open the **Patch** tab: this is the actual diff Switchyard produced, with compile checks and per-call env overrides, the runtime verification, and the **Security audit**: static findings plus injection probes run against each switched call on its new model.
 
 ## Where NVIDIA Nemotron and Nebius Token Factory are used
 
@@ -28,6 +28,7 @@ Everything model-related runs on Nemotron through Token Factory's OpenAI-compati
 | Migration candidates | Nemotron 3.5 Lightning, 3 Super, 3 Ultra | [`evaluate.py`](../switchyard/evaluate.py) |
 | Write (and fix from tracebacks) calls into the patched code | Nemotron 3 Super | [`runcheck.verify_site`](../switchyard/runcheck.py) |
 | The patched app itself, run for real | the chosen Nemotron model per call | [`runcheck.py`](../switchyard/runcheck.py) |
+| Attack each switched prompt (injection, leak, exfiltration) and re-test the fix | the chosen Nemotron model per call | [`audit.probes`](../switchyard/audit.py) |
 | Token Factory client, cost ledger, budget cap | n/a | [`llm.py`](../switchyard/llm.py) |
 
 The **Run cost** tab in the app shows what each of these jobs spent.
@@ -38,6 +39,7 @@ The **Run cost** tab in the app shows what each of these jobs spent.
 - Format checks: JSON validity, schema match, allowed labels, exact fields ([`evaluate.hard_checks`](../switchyard/evaluate.py)).
 - The decision rule: cheapest model with pass rate ≥ the bar **and** mean score within 0.05 of the best ([`pipeline.decide`](../switchyard/pipeline.py)).
 - The code edit: exact AST positions, then every touched file is re-parsed and byte-compiled ([`rewrite.py`](../switchyard/rewrite.py)).
+- Audit rules and probe detectors: AST data flow from the model call to `eval`/shell/SQL sinks, key patterns, canary strings and system-prompt n-gram overlap. A model never decides whether an attack succeeded ([`audit.py`](../switchyard/audit.py)).
 - Runtime verification: the patched module is loaded (definitions only), the switched function is called, and every HTTP request is recorded. "Verified" means it returned normally **and** its request went to Token Factory with the chosen model ([`runcheck.py`](../switchyard/runcheck.py)).
 
 ## "Isn't Nemotron grading Nemotron?"
@@ -51,11 +53,14 @@ Partly, and Switchyard is built to limit how much that matters:
 ## Run it yourself (about 3 minutes, under $1 of credits)
 
 ```bash
-git clone https://github.com/ayushagarwalhere/switchyard && cd switchyard
-python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
-echo "NEBIUS_API_KEY=..." > .env
-switchyard run https://github.com/daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns --budget 1
-switchyard serve    # then open http://127.0.0.1:8000
+pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.2.0"
+switchyard setup                     # paste a Token Factory key; it's checked and saved
+git clone --depth 1 https://github.com/daveebbelaar/ai-cookbook && cd ai-cookbook/patterns/workflows/2-workflow-patterns
+switchyard audit                     # free: security findings for every LLM call
+switchyard run --budget 1            # shows calls + cost, asks, runs, offers to apply on a branch
+switchyard serve                     # browse the run at http://127.0.0.1:8000
 ```
+
+Or from a coding agent: `npx skills add ayushagarwalhere/switchyard`, then ask it to "move my LLM calls to Nemotron".
 
 The offline test suite (`pytest`) runs the full pipeline against a scripted stand-in for Token Factory, so it needs no key.

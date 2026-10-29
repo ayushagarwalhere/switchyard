@@ -14,8 +14,8 @@ from . import evaluate, scanner
 from .llm import TokenFactory
 
 
-def latest_run() -> Path | None:
-    """Most recent finished run on this machine (not the featured demo runs)."""
+def latest_run(root: Path | None = None) -> Path | None:
+    """Most recent finished run (not the featured demo runs); with `root`, only runs of that checkout."""
     from .pipeline import RUNS_DIR
     best = None
     for d in RUNS_DIR.glob("*/run.json"):
@@ -25,6 +25,10 @@ def latest_run() -> Path | None:
             st = json.loads(d.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
+        if root is not None:
+            co = (st.get("checkout") or {}).get("root")
+            if not co or Path(co).resolve() != Path(root).resolve():
+                continue
         if st.get("status") == "done" and (best is None or st.get("started", 0) > best[0]):
             best = (st.get("started", 0), d.parent)
     return best[1] if best else None
@@ -56,7 +60,8 @@ def check(ref: str, repo: str | None = None, target: float | None = None, budget
     current = {}
     if repo:
         for c in scanner.scan_repo(repo)["calls"]:
-            current[(c["file"], c["function"])] = c
+            # several calls can share a function: match them in source order
+            current.setdefault((c["file"], c["function"]), []).append(c)
     tf = TokenFactory(budget_usd=budget)
     results = []
     for rec in state.get("sites", []):
@@ -66,7 +71,12 @@ def check(ref: str, repo: str | None = None, target: float | None = None, budget
         site = rec["site"]
         changed = False
         if repo:
-            now = current.get((site["file"], site["function"]))
+            key = (site["file"], site["function"])
+            # this site's position among the saved sites of the same function
+            idx = sum(1 for r in state["sites"][: state["sites"].index(rec)]
+                      if (r["site"]["file"], r["site"]["function"]) == key)
+            cands = current.get(key, [])
+            now = cands[idx] if idx < len(cands) else None
             if now is None:
                 results.append({"site": f"{site['file']}:{site['line']}", "function": site["function"],
                                 "status": "missing", "detail": "call site no longer found"})
@@ -89,5 +99,12 @@ def check(ref: str, repo: str | None = None, target: float | None = None, budget
              f"{res['pass_rate']:.0%} (was {was:.0%}){' · prompt changed' if changed else ''}")
     out = {"run": state["id"], "checked_at": time.time(), "target": target, "results": results,
            "ok": all(r["status"] == "ok" for r in results), "usage": tf.usage.to_dict()}
-    (run_dir / "check.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    from .pipeline import RUNS_DIR
+    # results go next to Switchyard's own runs, never into the developer's checkout
+    dest = run_dir if RUNS_DIR.resolve() in run_dir.resolve().parents else RUNS_DIR / "checks"
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / ("check.json" if dest == run_dir else f"{state['id']}.json")).write_text(json.dumps(out, indent=1), encoding="utf-8")
+    except OSError:
+        pass
     return out

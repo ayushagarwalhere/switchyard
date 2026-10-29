@@ -1,6 +1,6 @@
 [project]
 name = "switchyard"
-version = "0.1.0"
+version = "0.2.0"
 description = "Migrate LLM apps to NVIDIA Nemotron on Nebius Token Factory, with per-call proof of quality."
 readme = "README.md"
 license = "MIT"
@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tracing = ["langsmith>=0.1"]
+mcp = ["mcp>=1.9"]
 dev = ["pytest>=8"]
 
 [project.scripts]

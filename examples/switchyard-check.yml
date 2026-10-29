@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ayushagarwalhere/switchyard@main
+      - uses: ayushagarwalhere/switchyard@v0.2.0
         with:
           nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
           path: "."          # folder of the app, if it isn't the repo root

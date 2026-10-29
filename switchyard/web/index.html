@@ -86,18 +86,31 @@
       </form>
     </section>
     <section class="card">
+      <h2>Free security audit</h2>
+      <form id="auditForm">
+        <label>Public GitHub repo <span class="muted">(no key, nothing executed)</span>
+          <input id="auditSource" placeholder="https://github.com/owner/repo" required autocomplete="off">
+        </label>
+        <button id="auditBtn" class="secondary" type="submit">Audit its LLM calls</button>
+        <p class="muted small">Leaked keys, model output reaching eval/shell/SQL, user input in system prompts, missing timeouts and token caps.</p>
+      </form>
+    </section>
+    <section class="card">
       <h2>Runs</h2>
       <ul id="runList" class="run-list"><li class="muted">Loading…</li></ul>
     </section>
     <section class="card how" id="how">
       <h2>How it works</h2>
       <ol>
-        <li><b>Scan</b> the repo's code for every OpenAI / Anthropic SDK call. No code is executed.</li>
+        <li><b>Scan</b> the repo's code for every OpenAI, Anthropic, LiteLLM and LangChain call. No code is executed.</li>
+        <li><b>Investigate</b>: a <span class="chip m-super">Super</span> agent with search and read-file tools finds who calls each one and with what real inputs.</li>
         <li><b>Understand</b> each call: <span class="chip m-super">Super</span> describes the task, inputs and output contract.</li>
         <li><b>Test</b>: <span class="chip m-ultra">Ultra</span> (reasoning on) writes typical + tricky cases and the ideal answers. <span class="chip tav">Tavily</span> supplies real-world inputs.</li>
         <li><b>Evaluate</b> Lightning, Super and Ultra on every case: hard format checks in code plus a <span class="chip m-super">Super</span> grader.</li>
         <li><b>Repair</b>: if a cheaper model nearly passes, <span class="chip m-ultra">Ultra</span> adapts the prompt and it is re-tested.</li>
         <li><b>Patch</b>: rewrite each call to the cheapest model that clears the bar, compile-check it, and produce a reviewable diff.</li>
+        <li><b>Run the code</b>: call each switched function from the patched code against Token Factory and record the requests.</li>
+        <li><b>Audit</b>: check for leaked keys and unsafe use of model output, then attack each switched prompt with injection probes on its new model.</li>
       </ol>
     </section>
   </aside>

@@ -21,7 +21,7 @@ from .pipeline import RUNS_DIR
 ROOT = Path(__file__).resolve().parent.parent
 START, END = "<!-- results:start -->", "<!-- results:end -->"
 ROLE_LABEL = {"investigate": "Investigate the codebase", "analyze": "Understand call sites", "testgen": "Write tests", "judge": "Grade outputs",
-              "repair": "Adapt prompts", "harness": "Write calls for the patched code"}
+              "repair": "Adapt prompts", "harness": "Write calls for the patched code", "audit": "Attack prompts (security probes)"}
 
 
 def _pct(x) -> str:

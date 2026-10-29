@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from pathlib import Path
 
-from dotenv import find_dotenv, load_dotenv
+from dotenv import dotenv_values, find_dotenv
 
 # Where Switchyard keeps your key (from `switchyard setup`) and, once installed, its runs.
 HOME = Path(os.environ.get("SWITCHYARD_HOME") or Path.home() / ".switchyard").expanduser()
@@ -17,10 +17,17 @@ SOURCE_ROOT = Path(__file__).resolve().parent.parent
 
 def load_env() -> None:
     """The project's .env (searched from the current folder up) wins over the saved user key."""
-    load_dotenv(find_dotenv(usecwd=True))
+    files = [Path(find_dotenv(usecwd=True) or "")]
     if (SOURCE_ROOT / "pyproject.toml").exists():
-        load_dotenv(SOURCE_ROOT / ".env")
-    load_dotenv(USER_ENV)
+        files.append(SOURCE_ROOT / ".env")
+    files.append(USER_ENV)
+    for f in files:
+        if not f.is_file():
+            continue
+        for k, v in dotenv_values(f).items():
+            # first non-empty value wins; a blank `NEBIUS_API_KEY=` copied from .env.example doesn't hide the saved key
+            if v and not os.environ.get(k):
+                os.environ[k] = v
 
 
 load_env()

@@ -154,9 +154,44 @@ class _NemotronMessages:
 '''
 
 
+_LC_DROP = {"model", "model_name", "base_url", "openai_api_base", "api_key", "openai_api_key", "organization",
+            "openai_organization", "azure_endpoint", "azure_deployment", "deployment_name", "api_version",
+            "openai_api_version", "azure_ad_token", "azure_ad_token_provider", "model_provider"}
+
+
+def _langchain_call(site: dict, model_expr: str) -> str | None:
+    """Rebuild ChatOpenAI(...) / init_chat_model(...) against Token Factory, keeping unrelated settings."""
+    try:
+        node = ast.parse(site["snippet"], mode="eval").body
+    except SyntaxError:
+        return None
+    if not isinstance(node, ast.Call):
+        return None
+    func = ast.unparse(node.func)
+    keep = [ast.unparse(k) for k in node.keywords if k.arg not in _LC_DROP]
+    conn = [f'base_url=os.environ.get("{ENV_BASE}", "{config.DEFAULT_BASE_URL}")', f'api_key=os.environ.get("{ENV_KEY}")']
+    if site["method"] == "init_chat_model":
+        return f'{func}(model={model_expr}, model_provider="openai", {", ".join(conn + keep)})'
+    if site["method"] == "AzureChatOpenAI":
+        func = "ChatOpenAI"
+    return f"{func}(model={model_expr}, {', '.join(conn + keep)})"
+
+
+def _star_kwargs(site: dict) -> bool:
+    try:
+        node = ast.parse(site.get("snippet") or "", mode="eval").body
+    except SyntaxError:
+        return False
+    return isinstance(node, ast.Call) and any(k.arg is None for k in node.keywords)
+
+
 def _rewritable(site: dict) -> bool:
     if site["sdk"] in ("openai", "openai-responses"):
         return True
+    if site["sdk"] == "litellm":
+        return "model" in site.get("arg_spans", {}) and not _star_kwargs(site)
+    if site["sdk"] in ("langchain-openai", "langchain-init"):
+        return not _star_kwargs(site)
     if site["sdk"] == "anthropic":
         p = site.get("params", {})
         return bool(site.get("receiver_span")) and not site.get("awaited") and "tools" not in p and not p.get("stream")
@@ -168,6 +203,14 @@ def _manual_reason(site: dict) -> str:
         return "pre-1.0 openai.ChatCompletion API; upgrade the SDK first"
     if site["sdk"] == "anthropic":
         return "async, streaming or tool-use Anthropic call; port to the OpenAI SDK by hand"
+    if site["sdk"] in ("litellm", "langchain-openai", "langchain-init") and _star_kwargs(site):
+        return ("settings come from **kwargs, which may already set model or api_key; set model, "
+                "base_url/api_base and api_key there by hand")
+    if site["sdk"] == "litellm":
+        return "model passed positionally; pass model= as a keyword and re-run"
+    if site["sdk"] == "langchain-anthropic":
+        return ("ChatAnthropic can't call an OpenAI-compatible endpoint; replace it with "
+                "langchain_openai.ChatOpenAI(model=..., base_url=..., api_key=...)")
     return "unsupported SDK"
 
 
@@ -210,20 +253,46 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
         if mode == "rewrite-clients":
             for c in clients_by_file.get(rel, []):
                 ed.replace((c["line"], c["col"], c["end_line"], c["end_col"]), _client_call(text, c))
-        needs_sync = needs_async = needs_anthropic = False
+        needs_sync = needs_async = needs_anthropic = needs_lc = False
         for s in by_file.get(rel, []):
             site, dec = s["site"], s["decision"]
             model_id = config.MODELS[dec["model"]].id
             env = _env_name(site, used_env)
             expr = f'os.environ.get("{env}", "{model_id}")'
-            if "model" in site["arg_spans"]:
+            env_value = model_id
+            if site["sdk"] == "litellm":
+                # LiteLLM's "openai/" provider talks to any OpenAI-compatible endpoint
+                env_value = f"openai/{model_id}"
+                spans = site["arg_spans"]
+                base = f'os.environ.get("{ENV_BASE}", "{config.DEFAULT_BASE_URL}")'
+                key = f'os.environ.get("{ENV_KEY}")'
+                extra = []
+                for names, value in ((("api_base", "base_url"), base), (("api_key",), key)):
+                    hit = next((n for n in names if n in spans), None)
+                    if hit:
+                        ed.replace(spans[hit], value)
+                    else:
+                        extra.append(f"{names[0]}={value}")
+                ed.replace(spans["model"], f'os.environ.get("{env}", "{env_value}")' + "".join(f", {e}" for e in extra))
+            elif site["sdk"].startswith("langchain"):
+                new = _langchain_call(site, expr)
+                if new is None:
+                    manual.append({"file": rel, "line": site["line"], "sdk": site["sdk"], "model": model_id,
+                                   "reason": "couldn't rebuild the constructor; set model/base_url/api_key by hand"})
+                    continue
+                ed.replace(site["call_span"], new)
+                needs_lc |= site["method"] == "AzureChatOpenAI"
+                if dec.get("hint"):
+                    manual.append({"file": rel, "line": site["line"], "sdk": site["sdk"], "model": model_id,
+                                   "reason": f"add this instruction to the prompt's system message: {dec['hint']}"})
+            elif "model" in site["arg_spans"]:
                 ed.replace(site["arg_spans"]["model"], expr)
             if site["sdk"] == "anthropic":
                 # Anthropic clients can't be pointed at an OpenAI-compatible endpoint: route this call
                 # through a shim with the same messages.create() shape, backed by Token Factory.
                 ed.replace(site["receiver_span"], "_token_factory_anthropic")
                 needs_anthropic = True
-            elif mode == "dedicated-client" and site.get("receiver_span"):
+            elif mode == "dedicated-client" and site.get("receiver_span") and site["sdk"].startswith("openai"):
                 ed.replace(site["receiver_span"], "_token_factory_async" if site.get("awaited") else "_token_factory")
                 needs_async |= bool(site.get("awaited"))
                 needs_sync |= not site.get("awaited")
@@ -236,7 +305,7 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                     ed.replace(site["arg_spans"][key], f'[{{"role": "system", "content": {hint}}}] + list({orig})')
             routes.append({"file": rel, "line": site["line"], "function": site["function"], "env": env,
                            "from": site.get("model") or site.get("model_expr"), "to": model_id,
-                           "hint": dec.get("hint", ""), "pass_rate": dec["pass_rate"]})
+                           "hint": dec.get("hint", ""), "pass_rate": dec["pass_rate"], "env_value": env_value})
         if not ed.edits:
             continue
         header = ""
@@ -248,6 +317,9 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                           if on and n not in have)
         if names:
             header += f"from openai import {names}\n"
+        if needs_lc and not any(isinstance(st, ast.ImportFrom) and st.module == "langchain_openai"
+                                and any(a.name == "ChatOpenAI" and a.asname is None for a in st.names) for st in tree.body):
+            header += "from langchain_openai import ChatOpenAI\n"
         line = _import_line(tree)
         if needs_sync or needs_async or needs_anthropic:
             # define the client after the last top-level import so the module's own imports run first
@@ -295,7 +367,7 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
     diff_text = "".join(diff)
     _write(out_dir.parent / "migration.patch", diff_text)
     env_example = "\n".join([f"{ENV_KEY}=your-token-factory-key", f"{ENV_BASE}={config.DEFAULT_BASE_URL}"] +
-                            [f"# {r['file']}:{r['line']} {r['function']}\n{r['env']}={r['to']}" for r in routes]) + "\n"
+                            [f"# {r['file']}:{r['line']} {r['function']}\n{r['env']}={r.get('env_value', r['to'])}" for r in routes]) + "\n"
     (out_dir.parent / "migration.env").write_text(env_example, encoding="utf-8")
     return {"mode": mode, "changed": changed, "routes": routes, "manual": manual, "compile": checks, "tests": tests,
             "diff": diff_text, "env": env_example,
