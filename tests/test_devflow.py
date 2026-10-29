@@ -222,3 +222,13 @@ def test_ci_command_adds_workflows(offline, monorepo, capsys):
     assert cli.main(["ci", str(app)]) == 0
     assert (monorepo / ".github" / "workflows" / "switchyard-check-services-support.yml").exists()
     assert "NEBIUS_API_KEY" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("js", [False, True])
+def test_demo_creates_a_ready_to_run_app(tmp_path, capsys, js):
+    dest = tmp_path / "demo"
+    assert cli.main(["demo", str(dest)] + (["--js"] if js else [])) == 0
+    out = capsys.readouterr().out
+    assert ("4 LLM calls" if js else "3 LLM calls") in out and "switchyard run" in out
+    assert _git(dest, "log", "--oneline").strip()                     # its own repo, so apply works
+    assert cli.main(["demo", str(dest)]) == 2                          # never overwrites a folder

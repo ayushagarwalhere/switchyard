@@ -14,6 +14,7 @@ All commands:
   switchyard audit  [path] [--probes]      security/reliability findings per LLM call (SARIF for GitHub)
   switchyard mcp                           MCP server for Cursor, Claude Desktop and other agents
   switchyard ci     [path]                 add GitHub workflows (audit on PRs; check after a migration)
+  switchyard demo   [folder] [--js]        create a sample LLM app to try all of this on
   switchyard traces --langsmith <project>  export recorded calls to use as references
   switchyard review <run>                  human check of the grader (Toloka-ready TSV)
   switchyard publish <run>                 feature a run in the web app + write README results
@@ -83,6 +84,7 @@ and proves each switch with tests before changing any code.
   2. switchyard run        in your app's folder: find calls, test them, write a patch
   3. switchyard apply      put the patch on a new git branch (or: switchyard run --pr)
 
+No app handy?                   switchyard demo   (or --js for Next.js)
 Free first look, no key needed:  switchyard run --dry-run
 Is it safe to ship? (free):      switchyard audit
 All commands:                    switchyard --help"""
@@ -109,6 +111,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     ci = sub.add_parser("ci", help="add GitHub workflows: audit on every PR (+ the check guard after a migration)")
     ci.add_argument("path", nargs="?", default=".")
+
+    dm = sub.add_parser("demo", help="create a small sample LLM app (in its own git repo) to try Switchyard on")
+    dm.add_argument("path", nargs="?", default="switchyard-demo")
+    dm.add_argument("--js", action="store_true", help="a Next.js app (OpenAI SDK + Vercel AI SDK) instead of Python")
 
     sub.add_parser("mcp", help="run as an MCP server (stdio) for Cursor, Claude Desktop and other MCP clients")
 
@@ -253,6 +259,9 @@ def _dispatch(args) -> int:
             print("The check workflow needs a NEBIUS_API_KEY repository secret (Settings -> Secrets -> Actions).")
         print("Commit them to turn them on.")
         return 0
+
+    if args.cmd == "demo":
+        return _demo(args)
 
     if args.cmd == "mcp":
         from .mcp_server import main as mcp_main
@@ -539,6 +548,43 @@ def _audit(args) -> int:
         return 0
     limit = audit.SEVERITY_ORDER.index(args.fail_on.upper())
     return 1 if audit.SEVERITY_ORDER.index(audit.worst(findings)) <= limit else 0
+
+
+def _demo(args) -> int:
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    from . import audit
+    src = Path(__file__).parent / "demo_apps" / ("nextjs" if args.js else "python")
+    dest = Path(args.path).resolve()
+    if dest.exists() and any(dest.iterdir()):
+        print(f"error: {dest} already exists and isn't empty; pick another folder: switchyard demo <folder>")
+        return 2
+    shutil.copytree(src, dest, dirs_exist_ok=True)
+    git = ["git", "-C", str(dest), "-c", "user.name=switchyard-demo", "-c", "user.email=demo@switchyard.local"]
+    try:
+        subprocess.run(git[:3] + ["init", "-q"], check=True, capture_output=True)
+        subprocess.run(git + ["add", "-A"], check=True, capture_output=True)
+        subprocess.run(git + ["commit", "-qm", "Demo app"], check=True, capture_output=True)
+    except (OSError, subprocess.CalledProcessError):
+        print("(git isn't available, so `switchyard apply` won't work in this folder; everything else will)")
+    kind = "Next.js app (OpenAI SDK + Vercel AI SDK)" if args.js else "Python app (OpenAI SDK)"
+    print(f"Created a small {kind} in {dest}\n")
+    res = scanner.scan_repo(dest)
+    print(f"It has {len(res['calls'])} LLM calls:")
+    for c in res["calls"]:
+        print(f"  {c['file']}:{c['line']:<4} {c['function'] or '(module)':<18} {c['model'] or c['model_expr']}")
+    findings = audit.static(dest, res)
+    print(f"\nFree audit ({len(findings)} findings):")
+    for f in findings[:6]:
+        print(f"  {f['severity']:<8} {f['rule']}  {f['file']}:{f['line']}  {f['title']}: {f['detail']}")
+    from .pipeline import estimate_cost
+    print(f"\nTesting these calls on Nemotron would cost about ${estimate_cost(res['calls'], 8):.2f}. Next:")
+    print(f"  cd {args.path}\n"
+          "  switchyard setup      # once: paste your Token Factory key\n"
+          "  switchyard run        # tests every call, then offers to apply the patch on a branch")
+    return 0
 
 
 def _show(args) -> int:

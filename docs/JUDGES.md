@@ -53,7 +53,7 @@ Partly, and Switchyard is built to limit how much that matters:
 ## Run it yourself (about 3 minutes, under $1 of credits)
 
 ```bash
-pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.2.0"
+pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.3.0"
 switchyard setup                     # paste a Token Factory key; it's checked and saved
 git clone --depth 1 https://github.com/daveebbelaar/ai-cookbook && cd ai-cookbook/patterns/workflows/2-workflow-patterns
 switchyard audit                     # free: security findings for every LLM call
@@ -61,6 +61,10 @@ switchyard run --budget 1            # shows calls + cost, asks, runs, offers to
 switchyard serve                     # browse the run at http://127.0.0.1:8000
 ```
 
+No app at hand? `switchyard demo` (Python) or `switchyard demo --js` (Next.js with the Vercel AI SDK) creates a sample app in its own git repo; then `cd switchyard-demo && switchyard run`.
+
 Or from a coding agent: `npx skills add ayushagarwalhere/switchyard`, then ask it to "move my LLM calls to Nemotron".
+
+Without installing anything: the web app's **Free security audit** box audits any public GitHub repo's LLM calls (no key).
 
 The offline test suite (`pytest`) runs the full pipeline against a scripted stand-in for Token Factory, so it needs no key.

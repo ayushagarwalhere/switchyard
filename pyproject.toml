@@ -1,6 +1,6 @@
 [project]
 name = "switchyard"
-version = "0.2.0"
+version = "0.3.0"
 description = "Migrate LLM apps to NVIDIA Nemotron on Nebius Token Factory, with per-call proof of quality."
 readme = "README.md"
 license = "MIT"
@@ -25,7 +25,7 @@ switchyard = "switchyard.cli:main"
 packages = ["switchyard"]
 
 [tool.setuptools.package-data]
-switchyard = ["web/*"]
+switchyard = ["web/*", "demo_apps/python/*", "demo_apps/nextjs/*", "demo_apps/nextjs/lib/*", "demo_apps/nextjs/app/api/chat/*"]
 
 [tool.pytest.ini_options]
 addopts = "-q -p no:cacheprovider --basetemp=.pytest_tmp"

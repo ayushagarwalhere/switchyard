@@ -1,0 +1,11 @@
+{
+  "name": "switchyard-demo-next",
+  "private": true,
+  "scripts": { "dev": "next dev" },
+  "dependencies": {
+    "@ai-sdk/openai": "^2.0.0",
+    "ai": "^5.0.0",
+    "next": "^15.0.0",
+    "openai": "^5.0.0"
+  }
+}

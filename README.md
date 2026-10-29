@@ -1,5 +1,7 @@
 # Switchyard
 
+[![ci](https://github.com/ayushagarwalhere/switchyard/actions/workflows/ci.yml/badge.svg)](https://github.com/ayushagarwalhere/switchyard/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+
 **Move every LLM call in your app to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, with tests that prove each switch.**
 
 Most production apps send every request to one frontier model. Many of those calls are routing, classification, extraction or short rewrites that a smaller open model handles just as well, at a fraction of the price. Nobody switches because nobody knows *which* calls are safe to move.
@@ -14,6 +16,9 @@ Switchyard answers that per call site. Point it at a repository and it:
 6. **Repairs**: if a cheaper model *nearly* passes, Nemotron Ultra adapts the prompt and the cheaper model is re-tested.
 7. **Patches** the code: each call moves to the cheapest model that clears the quality bar, calls that fail stay on the original model, and every changed file is re-parsed and compiled.
 8. **Runs the patched code**: each switched function is called once, for real, against Token Factory, and every HTTP request is recorded. When a function needs more than strings (say, a Pydantic object), Nemotron writes the call, runs it, and fixes it from the traceback.
+9. **Audits** it: leaked keys, model output reaching `eval`/shell/SQL, user input in system prompts, missing timeouts and token caps. Then it attacks each switched prompt on its new Nemotron model with injection, prompt-leak and exfiltration probes, and re-tests the suggested fix.
+
+**Use it the way you work:** a CLI (`switchyard run` in your app's folder), your coding agent (agent skills for Claude Code/Codex/Cursor, or the MCP server), GitHub Actions (migrate-and-open-a-PR, a nightly check, an audit in the Security tab), Python (`switchyard.migrate(".")`), or the web app, which includes a free audit of any public GitHub repo. New to it? `switchyard demo` creates a sample app to try everything on.
 
 > Results from a recorded run are in [Results](#results).
 
@@ -69,6 +74,7 @@ Answer yes and you get a `switchyard/nemotron-<run>` branch with the patch, `.en
 
 | You want to | Run |
 |---|---|
+| Try it without your own app (sample Python or Next.js app in its own repo) | `switchyard demo` / `switchyard demo --js` |
 | See which calls Switchyard would test and the cost, free, no key | `switchyard run --dry-run` |
 | Skip the questions (scripts) | `switchyard run --yes --apply` |
 | Get a pull request with the evidence as its description (needs `gh`) | `switchyard run --pr`, or later `switchyard pr` |
@@ -99,7 +105,7 @@ npx skills add ayushagarwalhere/switchyard
 **MCP clients** (Cursor, Claude Desktop, Windsurf, VS Code): install with the MCP extra and add the server:
 
 ```bash
-pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.2.0"
+pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.3.0"
 ```
 ```json
 {"mcpServers": {"switchyard": {"command": "switchyard", "args": ["mcp"]}}}
@@ -135,7 +141,7 @@ Add a `NEBIUS_API_KEY` repository secret, copy [examples/switchyard-migrate.yml]
 The CI guard is a single step, and `switchyard apply` adds it for you:
 
 ```yaml
-- uses: ayushagarwalhere/switchyard@v0.2.0
+- uses: ayushagarwalhere/switchyard@v0.3.0
   with:
     nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
 ```
