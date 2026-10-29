@@ -16,6 +16,8 @@ html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font
 #stage { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; overflow: hidden; transform-origin: 0 0; background: #0d1030; }
 #gl { position: absolute; inset: 0; width: 1080px; height: 1920px; }
 #shade { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 40%, rgba(8,10,30,.55), rgba(4,5,16,.92)); opacity: 0; }
+#glow { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen;
+  background: radial-gradient(circle at -4% 52%, rgba(255,170,90,.55), rgba(255,140,60,.18) 22%, transparent 48%); }
 #vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0,0,0,.55)); }
 #sub { position: absolute; left: 80px; right: 80px; top: 250px; text-align: center; font: 600 54px/1.28 Inter; letter-spacing: -.01em;
   text-shadow: 0 3px 18px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,1), 0 0 30px rgba(0,0,0,.6); }
@@ -94,6 +96,7 @@ html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font
 <body>
 <div id="stage">
   <canvas id="gl" width="1080" height="1920"></canvas>
+  <div id="glow"></div>
   <div id="vignette"></div>
   <div id="shade"></div>
 
@@ -321,30 +324,40 @@ const fill = new THREE.DirectionalLight("#ffd2a6", .55); at(fill, .5, 1.8, 4); s
 scene.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.06, .055, .13, 8), mat("#e8e2d0")), -.05, .885, .5));
 const paper = at(box(.32, .01, .42, mat("#eae6dc")), -.95, .825, .45); paper.rotation.y = .3; scene.add(paper);
 
-// developer
-const dev = new THREE.Group(); at(dev, -.4, 0, -.15); scene.add(dev);
-const skin = mat("#eaa27e"), shirt = mat("#d9982c"), hairM = mat("#3c2216"), dark = mat("#1b1730"), black = mat("#121018", { roughness: .4 });
-dev.add(at(box(.66, .6, .38, shirt), 0, 1.06, 0));
-dev.add(at(box(.2, .34, .02, mat("#f1ede4")), 0, 1.13, .19));
-dev.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.075, .085, .14, 7), skin), 0, 1.4, 0));
-const head = new THREE.Group(); at(head, 0, 1.66, 0); dev.add(head);
-const skull = new THREE.Mesh(new THREE.IcosahedronGeometry(.27, 1), skin); skull.scale.set(.95, 1.1, .95); skull.castShadow = true; head.add(skull);
-for (let i = 0; i < 26; i++) {               // spiky hair, deterministic
-  const th = rnd() * Math.PI * 2, ph = rnd() * 1.15;
+// developer: low-poly, spiky red-orange hair, thick glasses, mustard jacket over a white tee
+const dev = new THREE.Group(); at(dev, -.4, 0, -.15); dev.rotation.y = .28; scene.add(dev);
+const skin = mat("#f2a985"), shirt = mat("#e3a52f"), shirtD = mat("#c4861d"), hairM = mat("#c9381d"), hairL = mat("#e8602d"),
+  dark = mat("#2a2440"), black = mat("#141019", { roughness: .4 }), white = new THREE.MeshBasicMaterial({ color: "#ffffff" });
+const jacket = new THREE.Mesh(new THREE.CylinderGeometry(.25, .37, .62, 6), shirt); jacket.scale.z = .6; at(jacket, 0, 1.05, 0); jacket.castShadow = true; dev.add(jacket);
+dev.add(at(box(.18, .26, .02, mat("#f3efe6")), 0, 1.2, .205));
+[-1, 1].forEach((s) => { const l = at(box(.11, .36, .03, shirtD), s * .125, 1.15, .195); l.rotation.z = s * .3; dev.add(l); });
+dev.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.075, .085, .16, 7), skin), 0, 1.42, 0));
+const head = new THREE.Group(); at(head, 0, 1.68, 0); dev.add(head);
+const skull = new THREE.Mesh(new THREE.IcosahedronGeometry(.27, 1), skin); skull.scale.set(.98, 1.08, .96); skull.castShadow = true; head.add(skull);
+for (let i = 0; i < 46; i++) {               // big spiky hair, swept up and back
+  const th = rnd() * Math.PI * 2, ph = rnd() * 1.25;
   const n = new THREE.Vector3(Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th));
-  if (n.z > .55 && n.y < .75) continue;       // keep the forehead clear
-  const c = new THREE.Mesh(new THREE.ConeGeometry(.07 + rnd() * .03, .2 + rnd() * .1, 4), hairM);
-  c.position.copy(n.clone().multiply(new THREE.Vector3(.25, .29, .25)));
-  c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n.clone().add(new THREE.Vector3(0, .5, -.2)).normalize());
-  head.add(c);
+  if ((n.z > .4 && n.y < .66) || n.y < .25) continue;   // keep the face and ears clear
+  const c = new THREE.Mesh(new THREE.ConeGeometry(.08 + rnd() * .05, .24 + rnd() * .16, 4), i % 3 ? hairM : hairL);
+  c.position.copy(n.clone().multiply(new THREE.Vector3(.25, .27, .25)));
+  c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n.clone().add(new THREE.Vector3((rnd() - .5) * .3, .7, -.15)).normalize());
+  c.castShadow = true; head.add(c);
 }
-[-1, 1].forEach((s) => head.add(at(box(.05, .09, .07, skin), s * .265, -.01, 0)));
-const devEyes = [-1, 1].map((s) => { const e = at(new THREE.Mesh(new THREE.SphereGeometry(.036, 8, 6), dark), s * .092, .02, .235); head.add(e); return e; });
-const devBrows = [-1, 1].map((s) => { const b = at(box(.1, .022, .02, hairM), s * .092, .115, .255); head.add(b); return b; });
-[-1, 1].forEach((s) => { const g = at(new THREE.Mesh(new THREE.TorusGeometry(.078, .014, 4, 4), black), s * .092, .02, .268); g.rotation.z = Math.PI / 4; head.add(g); });
-head.add(at(box(.05, .014, .014, black), 0, .03, .27));
-const nose = at(new THREE.Mesh(new THREE.ConeGeometry(.03, .07, 4), skin), 0, -.04, .27); nose.rotation.x = Math.PI / 2; head.add(nose);
-const devMouth = at(box(.1, .018, .02, mat("#5a1c22")), 0, -.13, .245); head.add(devMouth);
+[-1, 1].forEach((s) => head.add(at(box(.05, .1, .07, skin), s * .27, -.02, 0)));
+const devEyes = [-1, 1].map((s) => {
+  const e = new THREE.Group(); at(e, s * .095, .015, .232); head.add(e);
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(.036, 10, 8), dark); ball.scale.z = .5; e.add(ball);
+  e.add(at(new THREE.Mesh(new THREE.SphereGeometry(.009, 6, 4), white), .012, .013, .017));
+  return e;
+});
+const devBrows = [-1, 1].map((s) => { const b = at(box(.13, .03, .03, mat("#7a1f12")), s * .095, .125, .255); head.add(b); return b; });
+[-1, 1].forEach((s) => {
+  const g = at(new THREE.Mesh(new THREE.TorusGeometry(.07, .015, 6, 10), black), s * .095, .015, .272); head.add(g);
+  const arm = at(box(.018, .018, .2, black), s * .2, .03, .17); arm.rotation.y = s * .25; head.add(arm);
+});
+head.add(at(box(.045, .016, .016, black), 0, .03, .28));
+const nose = at(new THREE.Mesh(new THREE.ConeGeometry(.032, .075, 5), skin), 0, -.05, .275); nose.rotation.x = Math.PI / 2; head.add(nose);
+const devMouth = at(box(.07, .016, .02, mat("#3a1418")), 0, -.135, .248); head.add(devMouth);
 
 // Switchy: a lime robot on a stack of books
 const bot = new THREE.Group(); at(bot, .46, 0, .1); scene.add(bot);
@@ -352,10 +365,12 @@ const bot = new THREE.Group(); at(bot, .46, 0, .1); scene.add(bot);
 const lime = mat("#86c51c"), limeD = mat("#5d8f12");
 const botBody = new THREE.Group(); at(botBody, 0, 1.0, 0); bot.add(botBody);
 [-1, 1].forEach((s) => { botBody.add(at(box(.06, .11, .06, limeD), s * .075, .07, 0)); botBody.add(at(box(.09, .04, .12, limeD), s * .075, .02, .02)); });
-const torso = new THREE.Mesh(new THREE.IcosahedronGeometry(.2, 1), lime); torso.scale.set(1, 1.08, .92); at(torso, 0, .32, 0); torso.castShadow = true; botBody.add(torso);
-const face = new THREE.Group(); at(face, 0, .33, .17); botBody.add(face);
-const botEyes = [-1, 1].map((s) => { const e = at(box(.05, .08, .02, black), s * .068, .03, 0); face.add(e); face.add(at(box(.016, .016, .01, mat("#ffffff")), s * .068 + .012, .055, .012)); return e; });
-const botMouth = at(box(.07, .014, .02, black), 0, -.07, .005); face.add(botMouth);
+const torso = new THREE.Mesh(new THREE.IcosahedronGeometry(.22, 1), lime); torso.scale.set(1.05, 1.02, .9); at(torso, 0, .33, 0); torso.castShadow = true; botBody.add(torso);
+const face = new THREE.Group(); at(face, 0, .34, .185); botBody.add(face);
+const botEyes = [-1, 1].map((s) => { const e = new THREE.Group(); at(e, s * .072, .035, 0); face.add(e);
+  e.add(box(.058, .095, .02, black)); e.add(at(box(.018, .018, .01, white), .012, .025, .012)); return e; });
+const botSmile = new THREE.Mesh(new THREE.TorusGeometry(.038, .009, 4, 10, Math.PI), black); botSmile.rotation.z = Math.PI; at(botSmile, 0, -.045, .005); face.add(botSmile);
+const botMouth = at(box(.06, .03, .02, black), 0, -.07, .005); face.add(botMouth);
 const arms = [-1, 1].map((s) => { const p = new THREE.Group(); at(p, s * .2, .36, 0); p.add(at(box(.055, .17, .055, limeD), 0, -.08, 0)); botBody.add(p); return p; });
 botBody.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.008, .008, .12, 5), black), 0, .58, 0));
 const signal = new THREE.Mesh(new THREE.SphereGeometry(.035, 8, 6), new THREE.MeshBasicMaterial({ color: "#b6f24a" })); at(signal, 0, .65, 0); botBody.add(signal);
@@ -373,8 +388,8 @@ function env(who, t) {
   return 0;
 }
 const SHOTS = {
-  dev: { pos: [-.22, 1.6, 2.3], look: [-.4, 1.5, -.15] },
-  bot: { pos: [.32, 1.3, 2.05], look: [.46, 1.2, .1] },
+  dev: { pos: [.02, 1.6, 2.75], look: [-.4, 1.5, -.15] },
+  bot: { pos: [.14, 1.3, 2.3], look: [.46, 1.2, .1] },
   two: { pos: [.03, 1.62, 3.9], look: [.03, 1.42, 0] },
 };
 function shotFor(l) {
@@ -454,17 +469,20 @@ function render(t) {
   // card shots: the room goes soft and dark behind the card
   const cardP = c ? ease(c.lt / .35) : 0;
   $("#shade").style.opacity = cardP;
+  $("#glow").style.opacity = (1 - cardP) * (.85 + Math.sin(t * 2.3) * .05);
   canvas.style.filter = cardP ? `blur(${10 * cardP}px)` : "none";
   // characters
   const de = env("dev", t), be = env("bot", t);
   const devTalking = l && l.who === "dev" && lt < l.dur;
   const botTalking = l && l.who === "bot" && lt < l.dur;
-  devMouth.scale.set(1 - de * .25, 1 + de * 5, 1); devMouth.position.y = -.13 - de * .03;
-  botMouth.scale.set(1 - be * .2, 1 + be * 4.5, 1); botMouth.position.y = -.07 - be * .02;
+  devMouth.scale.set(1 - de * .2, 1 + de * 3, 1); devMouth.position.y = -.135 - de * .02;
+  botSmile.visible = be < .06;
+  botMouth.visible = !botSmile.visible;
+  botMouth.scale.set(1 - be * .2, .4 + be * 2.4, 1); botMouth.position.y = -.07 - be * .015;
   const blinkD = (t % 3.9) < .11 ? .12 : 1, blinkB = ((t + 1.7) % 4.4) < .11 ? .12 : 1;
   devEyes.forEach((e) => e.scale.set(1, blinkD, 1)); botEyes.forEach((e) => e.scale.set(1, blinkB, 1));
   devBrows.forEach((b, i) => { b.position.y = .115 + de * .025; b.rotation.z = (i ? -1 : 1) * (l && /\?|!|\.\.\./.test(l.text) && l.who === "dev" ? .12 : 0); });
-  head.rotation.y = devTalking ? Math.sin(t * 1.3) * .05 : .32 + Math.sin(t * .7) * .03;
+  head.rotation.y = devTalking ? Math.sin(t * 1.3) * .05 : .16 + Math.sin(t * .7) * .03;
   head.rotation.x = -de * .05 + Math.sin(t * 2.1) * .01;
   head.rotation.z = Math.sin(t * .9) * .025;
   bot.rotation.y = botTalking ? -.12 + Math.sin(t * 1.1) * .06 : -.42;
