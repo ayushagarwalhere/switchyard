@@ -17,7 +17,8 @@ import re
 from pathlib import Path
 
 JS_EXT = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
-JS_SKIP = {"node_modules", ".next", "dist", "build", "out", ".git", ".vercel", ".turbo", "coverage", ".venv", "venv"}
+JS_SKIP = {"node_modules", ".next", "dist", "build", "out", ".git", ".vercel", ".turbo", "coverage", ".venv", "venv",
+           "public", "vendor", "static"}
 JS_HINT = re.compile(r"openai|anthropic|generateText|streamText|generateObject|streamObject|completions", re.I)
 
 
@@ -43,7 +44,7 @@ def _skip_string(s: str, i: int) -> int:
     return len(s)
 
 
-REGEX_PREV = set("(,=:[!&|?{};+-*%<>~^")
+REGEX_PREV = set("(,=:[!&|?{};+-*%~^")      # not < or >: in JSX, `</div>` isn't a regex
 
 
 def _regex_end(s: str, i: int) -> int | None:
@@ -204,7 +205,7 @@ def _slot(expr: str) -> str:
 class _Values:
     def __init__(self, src: str):
         self.src = src
-        self.consts: dict[str, tuple[int, int]] = {}
+        self.consts: dict[str, list[tuple[int, int]]] = {}
         masked = mask(src)
         for m in re.finditer(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*", masked):
             a = m.end()
@@ -221,7 +222,13 @@ class _Values:
                 if c == ";" or (c == "\n" and not src[a:i].rstrip().endswith(("+", "=", ",", "(", "?", ":"))):
                     break
                 i += 1
-            self.consts.setdefault(m.group(1), (a, i))
+            self.consts.setdefault(m.group(1), []).append((a, i))
+
+    def lookup(self, name: str, at: int) -> tuple[int, int]:
+        """The nearest definition of `name` before offset `at` (two functions can each have `const prompt`)."""
+        defs = self.consts[name]
+        before = [d for d in defs if d[0] < at]
+        return before[-1] if before else defs[0]
 
     def text(self, a: int, b: int, depth: int = 0) -> str | None:
         """A string expression as a template with {{slots}}, or None if it isn't string-like."""
@@ -252,7 +259,7 @@ class _Values:
             texts = [self.text(x, y, depth + 1) or _slot(self.src[x:y]) for x, y in parts]
             return "".join(texts)
         if re.fullmatch(r"[A-Za-z_$][\w$]*", v) and v in self.consts:
-            ca, cb = self.consts[v]
+            ca, cb = self.lookup(v, a)
             t = self.text(ca, cb, depth + 1)
             return t if t is not None else _slot(v)
         return None
@@ -266,7 +273,7 @@ class _Values:
         if not v or depth > 3:
             return None
         if re.fullmatch(r"[A-Za-z_$][\w$]*", v) and v in self.consts:
-            return self.messages(*self.consts[v], depth=depth + 1)
+            return self.messages(*self.lookup(v, a), depth=depth + 1)
         start = self.src.find("[", a, b)
         if not v.startswith("[") or start < 0:
             return None
@@ -312,23 +319,38 @@ def _line(src: str, i: int) -> int:
     return src.count("\n", 0, i) + 1
 
 
-def _enclosing(masked: str, at: int) -> str | None:
-    best, best_pos = None, -1
-    head = masked[:at]
+def function_spans(masked: str) -> list[tuple[int, int, str]]:
+    """(body start, body end, name) for every named function-like body, computed once per file."""
+    spans = []
     for pat in FUNC_PATTERNS:
-        for m in pat.finditer(head):
+        for m in pat.finditer(masked):
             name = m.group(1)
             if name in ("if", "for", "while", "switch", "catch", "return", "function"):
                 continue
-            # the function's body must still be open at the call
-            brace = masked.find("{", m.end() - 1)
-            if brace < 0 or brace > at:
+            if m.group(0).rstrip().endswith("=>"):
+                j = m.end()
+                while j < len(masked) and masked[j].isspace():
+                    j += 1
+                if j < len(masked) and masked[j] == "{":
+                    spans.append((m.start(), _match(masked, j), name))
+                else:   # expression-bodied arrow: `x => call()` runs to the end of its line
+                    eol = masked.find("\n", m.end())
+                    spans.append((m.start(), len(masked) if eol < 0 else eol, name))
                 continue
-            if _match(masked, brace) < at:
+            # declarations and methods: skip the parameter list (it can hold braces), then the body
+            paren = masked.find("(", m.start() + len(name))
+            if paren < 0:
                 continue
-            if m.start() > best_pos:
-                best, best_pos = name, m.start()
-    return best
+            brace = masked.find("{", _match(masked, paren))
+            if brace >= 0:
+                spans.append((m.start(), _match(masked, brace), name))
+    return spans
+
+
+def _enclosing(spans: list[tuple[int, int, str]], at: int) -> str | None:
+    """The innermost span containing `at`."""
+    inside = [s for s in spans if s[0] < at <= s[1]]
+    return max(inside, key=lambda s: s[0])[2] if inside else None
 
 
 def _model_of(sdk: str, src: str, props: dict, vals: _Values) -> tuple[str | None, str | None, tuple | None]:
@@ -357,7 +379,10 @@ def scan_js_file(path: Path, root: Path) -> tuple[list[dict], list[dict]]:
     if not JS_HINT.search(src):
         return [], []
     rel = path.relative_to(root).as_posix()
+    if len(src) > 400_000 or max((len(x) for x in src.splitlines()), default=0) > 3000:
+        return [], []           # a bundled or minified file, not source code
     masked = mask(src)
+    spans = function_spans(masked)
     vals = _Values(src)
     anthropic_file = re.search(r"anthropic", src, re.I) is not None
     calls, clients = [], []
@@ -439,7 +464,7 @@ def scan_js_file(path: Path, root: Path) -> tuple[list[dict], list[dict]]:
             calls.append({
                 "id": hashlib.sha1(f"{rel}:{line}:{snippet}".encode()).hexdigest()[:8],
                 "file": rel, "line": line, "end_line": _line(src, close), "sdk": sdk,
-                "method": m.group(0).rstrip("( ").lstrip("."), "function": _enclosing(masked, m.start()),
+                "method": m.group(0).rstrip("( ").lstrip("."), "function": _enclosing(spans, m.start()),
                 "model": model, "model_expr": src[slice(*props["model"])].strip() if "model" in props else None,
                 "model_span": None, "messages": msgs, "variables": variables, "params": params,
                 "snippet": snippet[:2000], "context": src[max(0, m.start() - 1500):close + 200][-3000:],

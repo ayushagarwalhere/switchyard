@@ -376,7 +376,10 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
         diff.extend(difflib.unified_diff(a, b, f"a/{rel}", f"b/{rel}"))
     diff_text = "".join(diff)
     _write(out_dir.parent / "migration.patch", diff_text)
-    env_example = "\n".join([f"{ENV_KEY}=your-token-factory-key", f"{ENV_BASE}={config.DEFAULT_BASE_URL}"] +
+    js_note = (["# JavaScript/TypeScript: for Next.js put these in .env.local. They're read on the server only;",
+                "# never prefix them with NEXT_PUBLIC_, which would ship the key to the browser."]
+               if any(r["file"].endswith((".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")) for r in routes) else [])
+    env_example = "\n".join(js_note + [f"{ENV_KEY}=your-token-factory-key", f"{ENV_BASE}={config.DEFAULT_BASE_URL}"] +
                             [f"# {r['file']}:{r['line']} {r['function']}\n{r['env']}={r.get('env_value', r['to'])}" for r in routes]) + "\n"
     (out_dir.parent / "migration.env").write_text(env_example, encoding="utf-8")
     return {"mode": mode, "changed": changed, "routes": routes, "manual": manual, "compile": checks, "tests": tests,

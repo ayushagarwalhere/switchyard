@@ -40,12 +40,13 @@ def test_rewrite_points_everything_at_token_factory(tmp_path):
     assert res["ok"] and set(res["changed"]) == {"lib/ai.ts", "app/api/chat/route.ts"}
     mid = config.MODELS["super"].id
     lib = (tmp_path / "run" / "migrated" / "lib" / "ai.ts").read_text(encoding="utf-8")
-    assert "OPENAI_API_KEY" not in lib and "process.env.NEBIUS_API_KEY" in lib     # the shared client moved
+    assert "apiKey: process.env.OPENAI_API_KEY" in lib          # the app's own client is never touched
+    assert "const tokenFactory = new OpenAI({ baseURL:" in lib and lib.count("await tokenFactory.chat.completions") == 2
     assert lib.count(f'?? "{mid}"') == 2
     assert '[{ role: "system", content: "Only JSON." }, { role: "user"' in lib
     route = (tmp_path / "run" / "migrated" / "app" / "api" / "chat" / "route.ts").read_text(encoding="utf-8")
     assert 'import { createOpenAI } from "@ai-sdk/openai";' in route
-    assert f'tokenFactory.chat(process.env.LLM_MODEL_POST ?? "{mid}")' in route
+    assert f'tokenFactoryAI.chat(process.env.LLM_MODEL_POST ?? "{mid}")' in route
     assert 'system: "Only JSON." + "\\n\\n" + ("Summarize' in route
     assert balanced(route) is None and balanced(lib) is None
     assert "LLM_MODEL_TRIAGETICKET=" + mid in (tmp_path / "run" / "migration.env").read_text()
@@ -69,16 +70,120 @@ def test_partial_migration_keeps_the_original_client_and_line_endings(tmp_path):
     assert len(res["diff"].splitlines()) < 30                                  # no whole-file churn
 
 
-def test_client_built_from_a_config_object_keeps_its_options(tmp_path):
+def _one(tmp_path, name, code, hint=""):
     repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / "bot.js").write_text('const OpenAI = require("openai");\nconst cfg = { timeout: 20000 };\n'
-                                 'const client = new OpenAI(cfg);\n'
-                                 'async function ask(q) {\n  return client.chat.completions.create({ model: "gpt-4o", '
-                                 'messages: [{ role: "user", content: q }] });\n}\nmodule.exports = { ask };\n', encoding="utf-8")
-    res = _migrate(tmp_path, repo)
-    out = (tmp_path / "run" / "migrated" / "bot.js").read_text(encoding="utf-8")
-    assert "new OpenAI({ ...(cfg), baseURL:" in out and res["ok"]
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / name).write_text(code, encoding="utf-8")
+    scan = scanner.scan_repo(repo)
+    sites = [{"site": c, "status": "done", "decision": {"action": "migrate", "model": "lightning", "choice": "lightning",
+                                                         "pass_rate": 1.0, "hint": hint}} for c in scan["calls"]]
+    res = rewrite.apply(repo, tmp_path / "out", scan, sites)
+    out = tmp_path / "out" / name
+    return res, out.read_text(encoding="utf-8") if out.exists() else ""
+
+
+CJS = '''"use strict";
+const OpenAI = require("openai");
+const client = new OpenAI();
+async function ask(q) {
+  return client.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: q }] });
+}
+module.exports = { ask };
+'''
+
+
+def test_commonjs_gets_require_after_the_requires(tmp_path):
+    res, out = _one(tmp_path, "bot.js", CJS)
+    assert out.startswith('"use strict";\nconst OpenAI = require("openai");\n')
+    assert out.index("const tokenFactory") > out.index('require("openai")') and "import " not in out
+    assert res["ok"], res["compile"]
+
+
+BOTH = '''import OpenAI, { toFile } from "openai";
+import {
+  createOpenAI,
+} from "@ai-sdk/openai";
+import { generateText } from "ai";
+const client = new OpenAI();
+export async function a(messages, model = "gpt-4o") {
+  return client.chat.completions.create({ model, messages });
+}
+export async function b(prompt) {
+  return generateText({ model: createOpenAI({})("gpt-4o"), prompt });
+}
+'''
+
+
+def test_shorthand_props_and_both_sdks_in_one_file(tmp_path):
+    res, out = _one(tmp_path, "x.ts", BOTH, hint="Be brief.")
+    assert "model: process.env.LLM_MODEL_A" in out
+    assert 'messages: [{ role: "system", content: "Be brief." }, ...(messages)]' in out
+    assert out.count("import OpenAI") == 1 and out.count("createOpenAI,") == 1     # existing imports reused
+    assert "const tokenFactory = new OpenAI(" in out and "const tokenFactoryAI = createOpenAI(" in out
+    assert balanced(out) is None
+
+
+CLIENT_COMPONENT = '''"use client";
+import OpenAI from "openai";
+const c = new OpenAI({ dangerouslyAllowBrowser: true });
+export async function x(q) {
+  return c.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: q }] });
+}
+'''
+
+FACTORY = '''import { getClient } from "./c";
+export async function y(q) {
+  return getClient().chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: q }] });
+}
+'''
+
+
+def test_unsafe_targets_go_to_the_manual_list(tmp_path):
+    res, _ = _one(tmp_path / "a", "client.tsx", CLIENT_COMPONENT)
+    assert "client component" in res["manual"][0]["reason"] and not res["changed"]
+    res, _ = _one(tmp_path / "b", "srv.ts", FACTORY)
+    assert "can't rename safely" in res["manual"][0]["reason"] and not res["changed"]
+
+
+TWO_PROMPTS = '''import OpenAI from "openai";
+const c = new OpenAI();
+export async function one(q) {
+  const prompt = "First: " + q;
+  return c.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: prompt }] });
+}
+export async function two(q) {
+  const prompt = `Second: ${q}`;
+  return c.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: prompt }] });
+}
+export function View({ x }) {
+  return (<p>Hello {x}</p>);
+}
+'''
+
+
+def test_each_call_uses_its_own_prompt_const_and_jsx_is_not_a_regex(tmp_path):
+    (tmp_path / "r").mkdir()
+    (tmp_path / "r" / "page.tsx").write_text(TWO_PROMPTS, encoding="utf-8")
+    calls = {c["function"]: c for c in scanner.scan_repo(tmp_path / "r")["calls"]}
+    assert calls["one"]["messages"][0]["content"] == "First: {{q}}"
+    assert calls["two"]["messages"][0]["content"] == "Second: {{q}}"
+    assert balanced(TWO_PROMPTS) is None
+
+
+GATEWAY = '''import { generateText } from "ai";
+import { gateway } from "@ai-sdk/gateway";
+export async function s(t) {
+  return generateText({ model: gateway("openai/gpt-4o"), prompt: t });
+}
+'''
+
+
+def test_missing_ai_sdk_dependency_is_reported(tmp_path):
+    (tmp_path / "repo").mkdir()
+    (tmp_path / "repo" / "package.json").write_text('{"dependencies": {"ai": "^5.0.0"}}', encoding="utf-8")
+    res, out = _one(tmp_path, "r.ts", GATEWAY)
+    assert "tokenFactoryAI.chat(" in out
+    assert any("npm install @ai-sdk/openai" in m["reason"] for m in res["manual"])
 
 
 def test_pipeline_runs_end_to_end_on_a_next_app(monkeypatch, tmp_path):

@@ -145,13 +145,14 @@ _audit_cache: dict[str, tuple[float, dict]] = {}
 
 
 def _audit_clone(url: str, branch: str | None, dest: Path) -> None:
-    """Shallow, sparse clone of only the Python files: no history, no big assets, nothing executed."""
+    """Shallow, sparse clone of only the source files: no history, no big assets, nothing executed."""
     import subprocess
     base = ["git", "-c", "core.longpaths=true"]
     subprocess.run(base + ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--quiet"]
                    + (["--branch", branch] if branch else []) + [url, str(dest)],
                    check=True, capture_output=True, text=True, timeout=60)
-    subprocess.run(base + ["-C", str(dest), "sparse-checkout", "set", "--no-cone", "*.py"],
+    patterns = ["*.py", "*.js", "*.jsx", "*.ts", "*.tsx", "*.mjs", "*.cjs", "!node_modules/", "!*.min.js"]
+    subprocess.run(base + ["-C", str(dest), "sparse-checkout", "set", "--no-cone", *patterns],
                    check=True, capture_output=True, text=True, timeout=90)
 
 
