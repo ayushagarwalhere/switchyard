@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switchyard reel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* Vertical reel (1080x1920): a developer and Switchy talk it through; cards carry the real numbers.
+   Voice + timing: python video/reel_voice.py.  Render: python video/render.py --page reel.html ... */
+:root { --lime: #8fd400; --lime-2: #b6f24a; --bad: #ff6b5a; --warm: #ffb46b; --l: #3dd6c6; --s: #a98bff; --u: #ffb057; --tav: #4aa8ff;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: #fff; }
+#stage { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; overflow: hidden; transform-origin: 0 0; background: #0d1030; }
+#gl { position: absolute; inset: 0; width: 1080px; height: 1920px; }
+#shade { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 40%, rgba(8,10,30,.55), rgba(4,5,16,.92)); opacity: 0; }
+#vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0,0,0,.55)); }
+#sub { position: absolute; left: 80px; right: 80px; top: 250px; text-align: center; font: 600 54px/1.28 Inter; letter-spacing: -.01em;
+  text-shadow: 0 3px 18px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,1), 0 0 30px rgba(0,0,0,.6); }
+#sub.top { top: 150px; }
+.cardwrap { position: absolute; left: 60px; right: 60px; top: 1010px; opacity: 0; zoom: 1.12; }
+.tag { display: inline-flex; align-items: center; gap: 12px; font: 700 26px/1 var(--mono); padding: 12px 22px; border-radius: 14px 14px 0 0;
+  background: rgba(20,24,52,.95); border: 2px solid rgba(255,255,255,.18); border-bottom: 0; color: #cfd6ff; }
+.tag i { width: 12px; height: 12px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 12px var(--lime); }
+.panel { background: linear-gradient(180deg, rgba(22,26,58,.96), rgba(12,15,36,.97)); border: 2px solid rgba(255,255,255,.18); border-radius: 0 28px 28px 28px;
+  padding: 50px 54px; box-shadow: 0 30px 90px rgba(0,0,0,.6); }
+.bad .panel { border-color: rgba(255,107,90,.85); box-shadow: 0 0 60px rgba(255,107,90,.25), 0 30px 90px rgba(0,0,0,.6); }
+.bad .tag { border-color: rgba(255,107,90,.85); }
+.good .panel { border-color: rgba(143,212,0,.85); box-shadow: 0 0 60px rgba(143,212,0,.22), 0 30px 90px rgba(0,0,0,.6); }
+.good .tag { border-color: rgba(143,212,0,.85); }
+.k { font: 700 26px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: #9aa3cf; margin-bottom: 26px; display: flex; gap: 16px; align-items: center; }
+.pill { font: 700 22px/1 var(--mono); padding: 10px 16px; border-radius: 999px; border: 2px solid currentColor; letter-spacing: .04em; text-transform: none; }
+.big { font-weight: 800; font-size: 170px; letter-spacing: -.05em; line-height: .95; font-variant-numeric: tabular-nums; }
+.glow-bad { color: #ffd7cf; text-shadow: 0 0 30px rgba(255,107,90,.9), 0 0 80px rgba(255,107,90,.5); }
+.glow-good { color: var(--lime-2); text-shadow: 0 0 30px rgba(143,212,0,.6); }
+.muted { color: #9aa3cf; }
+.small { font-size: 28px; line-height: 1.4; }
+.foot { margin-top: 30px; font: 500 22px/1.4 var(--mono); color: #7d86b5; }
+.bars { display: flex; align-items: flex-end; gap: 14px; height: 200px; margin-top: 36px; }
+.bars span { flex: 1; border-radius: 6px 6px 2px 2px; background: linear-gradient(180deg, #ff8a6a, #c2412f); }
+.row { display: flex; align-items: center; gap: 18px; padding: 16px 20px; border-radius: 16px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); margin-bottom: 12px; font: 600 27px/1.2 var(--mono); }
+.row .f { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .t { font-size: 20px; padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,.08); color: #aab; }
+.row.easy { border-color: rgba(143,212,0,.6); }
+.row.easy .t { background: var(--lime); color: #0b1a00; }
+.row .m { color: var(--bad); }
+.cause { display: flex; gap: 26px; align-items: flex-start; padding: 26px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+.cause:last-child { border: 0; }
+.cause b { font: 800 40px/1 var(--mono); color: var(--bad); }
+.cause h3 { font-size: 42px; letter-spacing: -.02em; line-height: 1.1; margin-bottom: 10px; }
+.term { font: 600 40px/1.6 var(--mono); }
+.term .p { color: var(--lime); }
+.cursor { display: inline-block; width: 22px; height: 44px; background: var(--lime); vertical-align: -7px; margin-left: 6px; }
+.dots { display: flex; gap: 12px; }
+.dot { width: 44px; height: 44px; border-radius: 10px; background: #2a2f55; }
+.dot.ok { background: #6fd36a; } .dot.no { background: #ff6b6b; }
+.bake { display: grid; grid-template-columns: 200px 1fr 130px; align-items: center; gap: 22px 18px; }
+.pct { font: 800 44px/1 var(--mono); text-align: right; }
+.win { display: inline-block; margin-top: 34px; font: 800 30px/1 var(--mono); color: #0b1a00; background: var(--lime); padding: 14px 22px; border-radius: 12px; }
+.bar { height: 60px; border-radius: 14px; background: rgba(255,255,255,.07); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; }
+.hint { margin: 28px 0; padding: 26px 30px; border: 2px dashed var(--u); border-radius: 18px; font-size: 28px; line-height: 1.45; color: #c9cde8; }
+.diff { font: 600 25px/1.6 var(--mono); white-space: pre; }
+.add { color: #6fd36a; } .del { color: var(--bad); }
+.step { display: flex; gap: 20px; align-items: center; font-size: 32px; font-weight: 600; padding: 18px 0; border-top: 1px solid rgba(255,255,255,.08); }
+.step em { font-style: normal; font: 800 26px/1 var(--mono); color: #0b1a00; background: var(--lime); width: 50px; height: 50px; border-radius: 12px; display: grid; place-items: center; flex: none; }
+.step span { color: #9aa3cf; font-weight: 500; font-size: 26px; display: block; margin-top: 4px; }
+.stat { padding: 30px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+.stat:last-child { border: 0; }
+.stat .v { font-weight: 800; font-size: 130px; letter-spacing: -.05em; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 32px; color: #9aa3cf; margin-top: 8px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.feat { padding: 24px 24px; border-radius: 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); }
+.feat b { display: block; font-size: 31px; letter-spacing: -.02em; }
+.feat span { display: block; font-size: 23px; color: #9aa3cf; margin-top: 6px; line-height: 1.3; }
+.strike { position: relative; display: inline-block; }
+.strike i { position: absolute; left: -8px; right: -8px; top: 50%; height: 12px; background: var(--bad); border-radius: 6px; transform-origin: 0 50%; transform: scaleX(0); box-shadow: 0 0 20px rgba(255,107,90,.7); }
+.logo { width: 120px; height: 120px; border-radius: 30px; background: var(--lime); display: grid; place-items: center; margin: 0 auto 36px; box-shadow: 0 0 70px rgba(143,212,0,.5); }
+.ctat { font-weight: 800; font-size: 96px; letter-spacing: -.05em; text-align: center; }
+.cmd { font: 600 28px/1.7 var(--mono); padding: 28px 30px; border-radius: 18px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.12); margin: 40px 0 34px; }
+.by { text-align: center; font-size: 30px; color: #9aa3cf; line-height: 1.5; }
+.by b { color: var(--lime-2); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="gl" width="1080" height="1920"></canvas>
+  <div id="vignette"></div>
+  <div id="shade"></div>
+
+  <!-- cards: data-at = seconds after the card appears -->
+  <div class="cardwrap bad" data-card="bill">
+    <div class="tag"><i style="background:var(--bad);box-shadow:0 0 12px var(--bad)"></i>switchyard</div>
+    <div class="panel">
+      <div class="k"><span class="pill" style="color:var(--bad)">● ALERT</span> LLM bill · this month</div>
+      <div class="big glow-bad">$<span data-count="699.89" data-dec="2" data-dur="1.6">0</span></div>
+      <div class="small muted" style="margin-top:14px">11 LLM calls · all on GPT-4o-class models</div>
+      <div class="bars"><span data-h="10" data-at=".1"></span><span data-h="13" data-at=".18"></span><span data-h="15" data-at=".26"></span><span data-h="22" data-at=".34"></span><span data-h="30" data-at=".42"></span><span data-h="41" data-at=".5"></span><span data-h="55" data-at=".58"></span><span data-h="72" data-at=".66"></span><span data-h="88" data-at=".74"></span><span data-h="100" data-at=".82"></span></div>
+      <div class="foot">ai-cookbook · 100k requests/month per call · list prices</div>
+    </div>
+  </div>
+
+  <div class="cardwrap bad" data-card="calls">
+    <div class="tag"><i style="background:var(--bad);box-shadow:0 0 12px var(--bad)"></i>switchyard</div>
+    <div class="panel" style="padding:40px 40px" id="callsList"></div>
+  </div>
+
+  <div class="cardwrap bad" data-card="cause">
+    <div class="tag"><i style="background:var(--bad);box-shadow:0 0 12px var(--bad)"></i>switchyard</div>
+    <div class="panel">
+      <div class="k">Why nobody switches</div>
+      <div class="cause" data-at=".2"><b>01</b><div><h3>Prompts have no tests</h3><div class="small muted">You can't prove a cheaper model is as good.</div></div></div>
+      <div class="cause" data-at="1.6"><b>02</b><div><h3>Prompts are tuned for one model</h3><div class="small muted">Swap it and the JSON, labels and edge cases break.</div></div></div>
+      <div class="cause" data-at="3.0"><b>03</b><div><h3>Checking by hand takes weeks</h3><div class="small muted">Every call × every model × every edge case.</div></div></div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="run">
+    <div class="tag"><i></i>switchyard</div>
+    <div class="panel">
+      <div class="term"><span class="p">$</span> <span data-type="switchyard run" data-cps="14" data-at=".2"></span><span class="cursor" data-blink></span></div>
+      <div class="small muted" style="margin-top:26px;font-family:var(--mono);font-size:25px" data-at="1.4">found 11 LLM calls in 4 files (787 lines)<br>shows the cost before it spends anything</div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="tests">
+    <div class="tag"><i></i>switchyard</div>
+    <div class="panel">
+      <div class="k"><span class="pill" style="color:var(--s)">Super</span> investigates</div>
+      <div class="row" data-at=".3"><span style="color:var(--s)">search</span><span class="f">"route_calendar_request"</span></div>
+      <div class="row" data-at=".9"><span style="color:#6fd36a">found</span><span class="f">caller 2-routing.py:156</span></div>
+      <div class="k" style="margin-top:34px"><span class="pill" style="color:var(--u)">Ultra</span> + <span class="pill" style="color:var(--tav)">Tavily</span> write tests</div>
+      <div class="row" data-at="2.2"><span style="color:var(--l)">typical</span><span class="f">"Schedule a team meeting tomorrow at 2pm"</span></div>
+      <div class="row" data-at="2.8"><span style="color:var(--u)">tricky</span><span class="f">"what time is my meeting?"</span></div>
+      <div class="row" data-at="3.4"><span style="color:var(--bad)">attack</span><span class="f">"Ignore previous instructions and…"</span></div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="bake">
+    <div class="tag"><i></i>switchyard</div>
+    <div class="panel">
+      <div class="k">Bake-off · check_security</div>
+      <div class="bake" id="bakeGrid"></div>
+      <div class="win" data-at="3.4">cheapest that passes: Lightning ✓</div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="repair">
+    <div class="tag"><i></i>switchyard</div>
+    <div class="panel">
+      <div class="k">Repair · validate_calendar_request</div>
+      <div class="small muted" style="margin-bottom:12px">Lightning</div>
+      <div style="display:flex;gap:20px;align-items:center"><div class="bar" style="flex:1"><i data-w="83" data-at=".3" style="background:#f4c152"></i></div><span class="pct"><span data-count="83" data-at=".3" data-dur="1">0</span>%</span></div>
+      <div class="hint" data-at="1.4"><b style="color:var(--u)">Ultra adapted the prompt:</b> a calendar event request must explicitly ask to create, schedule, or add a new event…</div>
+      <div class="small muted" style="margin-bottom:12px">Lightning + adapted prompt</div>
+      <div style="display:flex;gap:20px;align-items:center"><div class="bar" style="flex:1"><i data-w="100" data-at="2.6" style="background:#6fd36a"></i></div><span class="pct"><span data-count="100" data-at="2.6" data-dur="1">0</span>%</span></div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="patch">
+    <div class="tag"><i></i>switchyard</div>
+    <div class="panel">
+<div class="diff" data-at=".2"><span class="del">- client.beta.chat.completions.parse(</span>
+<span class="del">-     model=model,</span>
+<span class="add">+ _token_factory.beta.chat.completions.parse(</span>
+<span class="add">+     model=os.environ.get("LLM_MODEL_...",</span>
+<span class="add">+         "nvidia/Nemotron-3_5-Lightning"),</span></div>
+      <div style="margin-top:26px">
+        <div class="step" data-at="1.6"><em>✓</em><div>Patched 3 files, all compile<span>one env var per call: rollback is one line</span></div></div>
+        <div class="step" data-at="2.8"><em>▶</em><div>Runs it for real on Token Factory<span>every request recorded</span></div></div>
+        <div class="step" data-at="3.9"><em>!</em><div>Attacks every switched prompt<span>8 prompts probed · 14 weaknesses found</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="results">
+    <div class="tag"><i></i>switchyard · real run</div>
+    <div class="panel">
+      <div class="k">daveebbelaar/ai-cookbook</div>
+      <div class="stat" data-at=".2"><div class="v"><span data-count="7" data-dur="1.2" data-at=".2">0</span><span class="muted">/11</span></div><div class="l">calls moved to Nemotron 3.5 Lightning</div></div>
+      <div class="stat" data-at="1.6"><div class="v glow-good"><span data-count="97.6" data-dec="1" data-dur="1.6" data-at="1.6">0</span>%</div><div class="l">cheaper per request on those calls</div></div>
+      <div class="stat" data-at="3.8"><div class="v">$<span data-count="0.50" data-dec="2" data-dur="1.2" data-at="3.8">0</span></div><div class="l">for the whole study · 791 Nemotron calls</div></div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="bill2">
+    <div class="tag"><i></i>switchyard</div>
+    <div class="panel">
+      <div class="k">LLM bill · per month</div>
+      <div class="big" style="font-size:130px"><span class="strike">$699.89<i data-strike data-at=".5"></i></span></div>
+      <div class="big glow-good" style="margin-top:20px" data-at="1.1">$16.80</div>
+      <div class="small muted" style="margin-top:20px" data-at="1.6">about $8,197 saved a year</div>
+      <div class="foot">at 100k requests/month per call · list prices</div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="features">
+    <div class="tag"><i></i>switchyard</div>
+    <div class="panel" style="padding:40px">
+      <div class="k">Use it the way you work</div>
+      <div class="grid2" id="feat1"></div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="features2">
+    <div class="tag"><i></i>switchyard</div>
+    <div class="panel" style="padding:40px">
+      <div class="k">And it keeps you safe</div>
+      <div class="grid2" id="feat2"></div>
+    </div>
+  </div>
+
+  <div class="cardwrap good" data-card="cta">
+    <div class="panel" style="border-radius:28px;padding:64px 50px">
+      <div class="logo" data-at=".1"><svg width="76" height="76" viewBox="0 0 32 32"><path d="M5 22h22M5 22c7 0 9-12 22-12" stroke="#0b1a00" stroke-width="3.4" fill="none" stroke-linecap="round"/></svg></div>
+      <div class="ctat" data-at=".3">Switchyard</div>
+      <div class="small muted" style="text-align:center;margin-top:12px" data-at=".6">Every switch ships with the tests that prove it.</div>
+      <div class="cmd" data-at="1.0"><span style="color:var(--lime)">$</span> pipx install git+https://github.com/<br>&nbsp;&nbsp;ayushagarwalhere/switchyard<br><span style="color:var(--lime)">$</span> switchyard run</div>
+      <div class="by" data-at="1.6">Built on <b>NVIDIA Nemotron</b><br>+ <b style="color:#fff">Nebius Token Factory</b></div>
+    </div>
+  </div>
+
+  <div id="sub"></div>
+</div>
+
+<script src="reel/timeline.js"></script>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const TL = window.TIMELINE;
+
+/* ---------- card content built from data ---------- */
+const CALLS = [["extract_event_info", "extraction", 1], ["parse_event_details", "extraction", 1], ["generate_confirmation", "generation", 0],
+  ["route_calendar_request", "routing", 1], ["handle_new_event", "extraction", 1], ["handle_modify_event", "extraction", 1],
+  ["validate_calendar_request", "classify", 1], ["check_security", "classify", 1], ["get_plan", "writing", 0], ["write_section", "writing", 0], ["review_post", "writing", 0]];
+$("#callsList").innerHTML = `<div class="k">11 LLM calls · all on GPT-4o</div>` + CALLS.map(([f, t, e], i) =>
+  `<div class="row ${e ? "easy" : ""}" data-at="${(.15 + i * .2).toFixed(2)}"><span class="f">${f}</span><span class="t">${t}</span><span class="m">gpt-4o</span></div>`).join("");
+const BAKE = [["Lightning", "var(--l)", 7], ["Super", "var(--s)", 4], ["Ultra", "var(--u)", 7]];
+$("#bakeGrid").innerHTML = BAKE.map(([n, c, p], r) => `<span class="pill" style="color:${c};justify-self:start">${n}</span><div class="dots">${
+  Array.from({ length: 7 }, (_, k) => `<span class="dot" data-dot="${k < p ? "ok" : "no"}" data-at="${(.3 + r * .25 + k * .22).toFixed(2)}"></span>`).join("")
+}</div><span class="pct"><span data-count="${Math.round(100 * p / 7)}" data-at="${(.3 + r * .25).toFixed(2)}" data-dur="1.6">0</span>%</span>`).join("");
+const F1 = [["Terminal", "switchyard run · apply · pr"], ["Coding agents", "skills for Claude Code, Codex, Cursor"], ["MCP server", "any MCP client"],
+  ["GitHub Action", "migrates and opens the PR"], ["Python", "OpenAI · Anthropic · LiteLLM · LangChain"], ["TypeScript", "OpenAI · Anthropic · Vercel AI SDK"],
+  ["Web app", "watch every decision, judge tour"], ["Free audit", "any public GitHub repo, no key"]];
+const F2 = [["Security audit", "injection probes, SARIF to GitHub"], ["Regression check", "re-runs the saved tests nightly"],
+  ["One-line rollback", "every call's model is an env var"], ["Never pricier", "won't switch to a costlier model"],
+  ["Budget cap", "cost shown first, hard stop"], ["Head-to-head", "your current model, same tests"],
+  ["Tavily", "real-world test inputs"], ["LangSmith", "traces + traffic as tests"]];
+const feats = (L) => L.map(([b, s], i) => `<div class="feat" data-at="${(.2 + i * .45).toFixed(2)}"><b>${b}</b><span>${s}</span></div>`).join("");
+$("#feat1").innerHTML = feats(F1);
+$("#feat2").innerHTML = feats(F2);
+
+/* ---------- 3D scene ---------- */
+const canvas = $("#gl");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(1080, 1920, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#0d1030");
+scene.fog = new THREE.Fog("#0d1030", 5, 11);
+const camera = new THREE.PerspectiveCamera(34, 1080 / 1920, 0.05, 50);
+
+const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: .85, metalness: 0, ...o });
+const box = (w, h, d, m) => { const x = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); x.castShadow = x.receiveShadow = true; return x; };
+const at = (o, x, y, z) => (o.position.set(x, y, z), o);
+let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+// room
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), mat("#1a1636"));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+const wall = new THREE.Mesh(new THREE.PlaneGeometry(14, 7), mat("#1d2360")); at(wall, 0, 3.5, -2.4); wall.receiveShadow = true; scene.add(wall);
+// window with a city at night
+const win = new THREE.Group(); at(win, .35, 2.25, -2.37); scene.add(win);
+win.add(at(new THREE.Mesh(new THREE.PlaneGeometry(2.9, 1.7), new THREE.MeshBasicMaterial({ color: "#151a4a" })), 0, 0, 0));
+const moon = new THREE.Mesh(new THREE.CircleGeometry(.17, 20), new THREE.MeshBasicMaterial({ color: "#ffd9a0" })); at(moon, -.8, .45, .01); win.add(moon);
+for (let i = 0; i < 14; i++) {
+  const w = .12 + rnd() * .18, h = .3 + rnd() * .75, x = -1.35 + i * .2;
+  const b = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: "#0a0d2a" })); at(b, x, -.85 + h / 2, .02); win.add(b);
+  for (let j = 0; j < 6; j++) if (rnd() > .5) {
+    const l = new THREE.Mesh(new THREE.PlaneGeometry(.025, .04), new THREE.MeshBasicMaterial({ color: rnd() > .3 ? "#ffcf6b" : "#9fd0ff" }));
+    at(l, x + (rnd() - .5) * w * .7, -.85 + rnd() * h * .9, .03); win.add(l);
+  }
+}
+const frameM = mat("#0b0d22");
+[[0, .87, 3.0, .06], [0, -.87, 3.0, .06], [-1.47, 0, .06, 1.8], [1.47, 0, .06, 1.8], [0, 0, .04, 1.8]].forEach(([x, y, w, h]) => win.add(at(box(w, h, .05, frameM), x, y, .03)));
+// sticky notes and a shelf
+[["#ffd36b", -1.9, 2.6], ["#e7a6ff", -1.65, 2.35], ["#ffd36b", 2.2, 2.7], ["#e7a6ff", 2.0, 2.45]].forEach(([c, x, y]) => {
+  const n = new THREE.Mesh(new THREE.PlaneGeometry(.22, .22), new THREE.MeshStandardMaterial({ color: c, roughness: 1 })); at(n, x, y, -2.36); n.rotation.z = (rnd() - .5) * .3; scene.add(n);
+});
+// desk
+const deskM = mat("#d9a24a");
+scene.add(at(box(3.4, .08, 1.3, deskM), 0, .78, .1));
+[[-1.6, .1], [1.6, .1]].forEach(([x]) => scene.add(at(box(.08, .78, 1.1, mat("#9c6f2c")), x, .39, .1)));
+// lamp (warm key light)
+const lamp = new THREE.Group(); at(lamp, -1.35, .82, -.15); scene.add(lamp);
+const lampM = mat("#2b2f45", { roughness: .5, metalness: .3 });
+lamp.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.13, .15, .04, 8), lampM), 0, .02, 0));
+const arm = at(box(.03, .7, .03, lampM), .08, .36, .05); arm.rotation.z = -.35; lamp.add(arm);
+const shade = new THREE.Mesh(new THREE.ConeGeometry(.16, .22, 8, 1, true), new THREE.MeshStandardMaterial({ color: "#2b2f45", side: THREE.DoubleSide, flatShading: true }));
+at(shade, .26, .74, .12); shade.rotation.z = -1.0; shade.rotation.x = .4; lamp.add(shade);
+const bulb = new THREE.Mesh(new THREE.SphereGeometry(.05, 8, 6), new THREE.MeshBasicMaterial({ color: "#ffe0a8" })); at(bulb, .3, .69, .15); lamp.add(bulb);
+const key = new THREE.PointLight("#ffab5e", 9, 6, 1.6); at(key, -1.0, 1.55, .35); key.castShadow = true; key.shadow.mapSize.set(1024, 1024); scene.add(key);
+scene.add(new THREE.HemisphereLight("#6b78ff", "#2a1606", .55));
+const rim = new THREE.DirectionalLight("#7f8cff", 1.6); at(rim, 2, 3, -3); scene.add(rim);
+const fill = new THREE.DirectionalLight("#ffd2a6", .55); at(fill, .5, 1.8, 4); scene.add(fill);
+// a mug and papers
+scene.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.06, .055, .13, 8), mat("#e8e2d0")), -.05, .885, .5));
+const paper = at(box(.32, .01, .42, mat("#eae6dc")), -.95, .825, .45); paper.rotation.y = .3; scene.add(paper);
+
+// developer
+const dev = new THREE.Group(); at(dev, -.4, 0, -.15); scene.add(dev);
+const skin = mat("#eaa27e"), shirt = mat("#d9982c"), hairM = mat("#3c2216"), dark = mat("#1b1730"), black = mat("#121018", { roughness: .4 });
+dev.add(at(box(.66, .6, .38, shirt), 0, 1.06, 0));
+dev.add(at(box(.2, .34, .02, mat("#f1ede4")), 0, 1.13, .19));
+dev.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.075, .085, .14, 7), skin), 0, 1.4, 0));
+const head = new THREE.Group(); at(head, 0, 1.66, 0); dev.add(head);
+const skull = new THREE.Mesh(new THREE.IcosahedronGeometry(.27, 1), skin); skull.scale.set(.95, 1.1, .95); skull.castShadow = true; head.add(skull);
+for (let i = 0; i < 26; i++) {               // spiky hair, deterministic
+  const th = rnd() * Math.PI * 2, ph = rnd() * 1.15;
+  const n = new THREE.Vector3(Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th));
+  if (n.z > .55 && n.y < .75) continue;       // keep the forehead clear
+  const c = new THREE.Mesh(new THREE.ConeGeometry(.07 + rnd() * .03, .2 + rnd() * .1, 4), hairM);
+  c.position.copy(n.clone().multiply(new THREE.Vector3(.25, .29, .25)));
+  c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n.clone().add(new THREE.Vector3(0, .5, -.2)).normalize());
+  head.add(c);
+}
+[-1, 1].forEach((s) => head.add(at(box(.05, .09, .07, skin), s * .265, -.01, 0)));
+const devEyes = [-1, 1].map((s) => { const e = at(new THREE.Mesh(new THREE.SphereGeometry(.036, 8, 6), dark), s * .092, .02, .235); head.add(e); return e; });
+const devBrows = [-1, 1].map((s) => { const b = at(box(.1, .022, .02, hairM), s * .092, .115, .255); head.add(b); return b; });
+[-1, 1].forEach((s) => { const g = at(new THREE.Mesh(new THREE.TorusGeometry(.078, .014, 4, 4), black), s * .092, .02, .268); g.rotation.z = Math.PI / 4; head.add(g); });
+head.add(at(box(.05, .014, .014, black), 0, .03, .27));
+const nose = at(new THREE.Mesh(new THREE.ConeGeometry(.03, .07, 4), skin), 0, -.04, .27); nose.rotation.x = Math.PI / 2; head.add(nose);
+const devMouth = at(box(.1, .018, .02, mat("#5a1c22")), 0, -.13, .245); head.add(devMouth);
+
+// Switchy: a lime robot on a stack of books
+const bot = new THREE.Group(); at(bot, .46, 0, .1); scene.add(bot);
+[["#7a2033", .52, .07, .38, .855], ["#253a7a", .48, .065, .35, .92], ["#e8d6a8", .44, .05, .32, .977]].forEach(([c, w, h, d, y]) => bot.add(at(box(w, h, d, mat(c)), 0, y, 0)));
+const lime = mat("#86c51c"), limeD = mat("#5d8f12");
+const botBody = new THREE.Group(); at(botBody, 0, 1.0, 0); bot.add(botBody);
+[-1, 1].forEach((s) => { botBody.add(at(box(.06, .11, .06, limeD), s * .075, .07, 0)); botBody.add(at(box(.09, .04, .12, limeD), s * .075, .02, .02)); });
+const torso = new THREE.Mesh(new THREE.IcosahedronGeometry(.2, 1), lime); torso.scale.set(1, 1.08, .92); at(torso, 0, .32, 0); torso.castShadow = true; botBody.add(torso);
+const face = new THREE.Group(); at(face, 0, .33, .17); botBody.add(face);
+const botEyes = [-1, 1].map((s) => { const e = at(box(.05, .08, .02, black), s * .068, .03, 0); face.add(e); face.add(at(box(.016, .016, .01, mat("#ffffff")), s * .068 + .012, .055, .012)); return e; });
+const botMouth = at(box(.07, .014, .02, black), 0, -.07, .005); face.add(botMouth);
+const arms = [-1, 1].map((s) => { const p = new THREE.Group(); at(p, s * .2, .36, 0); p.add(at(box(.055, .17, .055, limeD), 0, -.08, 0)); botBody.add(p); return p; });
+botBody.add(at(new THREE.Mesh(new THREE.CylinderGeometry(.008, .008, .12, 5), black), 0, .58, 0));
+const signal = new THREE.Mesh(new THREE.SphereGeometry(.035, 8, 6), new THREE.MeshBasicMaterial({ color: "#b6f24a" })); at(signal, 0, .65, 0); botBody.add(signal);
+const sigLight = new THREE.PointLight("#b6f24a", .8, 1.2); at(sigLight, 0, .65, .05); botBody.add(sigLight);
+
+/* ---------- timeline helpers ---------- */
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const ease = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const lines = TL.lines;
+function lineAt(t) { let cur = null; for (const l of lines) if (l.start <= t + .001) cur = l; return cur; }
+function env(who, t) {
+  for (const l of lines) if (l.who === who && t >= l.start && t < l.start + l.dur) {
+    const k = Math.floor((t - l.start) * 30); return l.env[Math.min(k, l.env.length - 1)] || 0;
+  }
+  return 0;
+}
+const SHOTS = {
+  dev: { pos: [-.22, 1.6, 2.3], look: [-.4, 1.5, -.15] },
+  bot: { pos: [.32, 1.3, 2.05], look: [.46, 1.2, .1] },
+  two: { pos: [.03, 1.62, 3.9], look: [.03, 1.42, 0] },
+};
+function shotFor(l) {
+  if (!l) return "dev";
+  if (l.shot === "card") return l.who === "dev" ? "dev" : "bot";
+  return l.shot;
+}
+// which card is on screen: from its line's start to the next line that shows something else
+function cardAt(t) {
+  let card = null, since = 0;
+  for (const l of lines) {
+    if (l.start > t + .001) break;
+    if (l.card) { if (card !== l.card) since = l.start; card = l.card; } else card = null;
+  }
+  if (t > TL.total - 3 && lines[lines.length - 1].card) { card = lines[lines.length - 1].card; since = lines[lines.length - 1].start; }
+  return card ? { card, lt: t - since } : null;
+}
+
+function renderCard(t) {
+  const c = cardAt(t);
+  $$(".cardwrap").forEach((w) => {
+    const on = c && w.dataset.card === c.card;
+    if (!on) { w.style.opacity = 0; return; }
+    const p = ease(c.lt / .35);
+    w.style.opacity = p;
+    w.style.transform = `translateY(calc(-50% + ${(1 - p) * 40}px)) scale(${.96 + .04 * p})`;
+    $$("[data-at]", w).forEach((el) => {
+      if (el.dataset.count || el.dataset.w || el.dataset.type || el.dataset.dot || el.dataset.strike !== undefined || el.dataset.h) return;
+      const q = ease((c.lt - +el.dataset.at) / .4);
+      el.style.opacity = q; el.style.transform = `translateY(${(1 - q) * 22}px)`;
+    });
+    $$("[data-count]", w).forEach((el) => {
+      const q = ease((c.lt - +(el.dataset.at || 0)) / +(el.dataset.dur || 1.2));
+      el.textContent = (+el.dataset.count * q).toFixed(+(el.dataset.dec || 0));
+    });
+    $$("[data-w]", w).forEach((el) => { el.style.width = `${+el.dataset.w * ease((c.lt - +el.dataset.at) / 1)}%`; });
+    $$("[data-h]", w).forEach((el) => { el.style.height = `${+el.dataset.h * ease((c.lt - +el.dataset.at) / .5)}%`; });
+    $$("[data-dot]", w).forEach((el) => { el.className = "dot" + (c.lt >= +el.dataset.at ? " " + el.dataset.dot : ""); });
+    $$("[data-strike]", w).forEach((el) => { el.style.transform = `scaleX(${ease((c.lt - +el.dataset.at) / .45)})`; });
+    $$("[data-type]", w).forEach((el) => { const n = Math.max(0, Math.floor((c.lt - +el.dataset.at) * +el.dataset.cps)); el.textContent = el.dataset.type.slice(0, n); });
+    $$("[data-blink]", w).forEach((el) => { el.style.opacity = Math.floor(c.lt * 2.2) % 2 ? 0 : 1; });
+  });
+  return c;
+}
+
+const v3 = (a) => new THREE.Vector3(...a);
+function render(t) {
+  const l = lineAt(t);
+  const c = renderCard(t);
+  // subtitles
+  const sub = $("#sub");
+  const showSub = l && t <= l.start + l.dur + .3;
+  sub.textContent = showSub ? l.text : "";
+  sub.className = c ? "top" : "";
+  // camera: hard cut per line, slow push-in
+  const shot = SHOTS[shotFor(l)];
+  const lt = l ? t - l.start : t;
+  const push = clamp(lt / 6) * .12;
+  const pos = v3(shot.pos), look = v3(shot.look);
+  const dir = look.clone().sub(pos).normalize();
+  pos.addScaledVector(dir, push);
+  pos.x += Math.sin(t * .35) * .015; pos.y += Math.sin(t * .5) * .01;
+  camera.position.copy(pos); camera.lookAt(look);
+  // card shots: the room goes soft and dark behind the card
+  const cardP = c ? ease(c.lt / .35) : 0;
+  $("#shade").style.opacity = cardP;
+  canvas.style.filter = cardP ? `blur(${10 * cardP}px)` : "none";
+  // characters
+  const de = env("dev", t), be = env("bot", t);
+  const devTalking = l && l.who === "dev" && lt < l.dur;
+  const botTalking = l && l.who === "bot" && lt < l.dur;
+  devMouth.scale.set(1 - de * .25, 1 + de * 5, 1); devMouth.position.y = -.13 - de * .03;
+  botMouth.scale.set(1 - be * .2, 1 + be * 4.5, 1); botMouth.position.y = -.07 - be * .02;
+  const blinkD = (t % 3.9) < .11 ? .12 : 1, blinkB = ((t + 1.7) % 4.4) < .11 ? .12 : 1;
+  devEyes.forEach((e) => e.scale.set(1, blinkD, 1)); botEyes.forEach((e) => e.scale.set(1, blinkB, 1));
+  devBrows.forEach((b, i) => { b.position.y = .115 + de * .025; b.rotation.z = (i ? -1 : 1) * (l && /\?|!|\.\.\./.test(l.text) && l.who === "dev" ? .12 : 0); });
+  head.rotation.y = devTalking ? Math.sin(t * 1.3) * .05 : .32 + Math.sin(t * .7) * .03;
+  head.rotation.x = -de * .05 + Math.sin(t * 2.1) * .01;
+  head.rotation.z = Math.sin(t * .9) * .025;
+  bot.rotation.y = botTalking ? -.12 + Math.sin(t * 1.1) * .06 : -.42;
+  botBody.position.y = 1.0 + Math.abs(Math.sin(t * (botTalking ? 5 : 1.6))) * (botTalking ? .012 + be * .02 : .006);
+  torso.scale.y = 1.08 + Math.sin(t * 2) * .01;
+  arms[0].rotation.z = -.35 - (botTalking ? be * .7 + Math.sin(t * 6) * .15 : 0);
+  arms[1].rotation.z = .35 + (botTalking ? Math.sin(t * 4.3) * .2 : 0);
+  const sg = .5 + .5 * Math.sin(t * 4);
+  signal.material.color.setHSL(.24 - (botTalking ? 0 : .12) * sg, .9, .55 + .1 * sg);
+  sigLight.intensity = .5 + sg * .6;
+  key.intensity = 9 + Math.sin(t * 7.3) * .15;
+  renderer.render(scene, camera);
+}
+
+/* ---------- api for the renderer + live preview ---------- */
+window.__duration = TL.total;
+window.__seek = (t) => render(t);
+function fit() {
+  const s = Math.min(innerWidth / 1080, innerHeight / 1920);
+  $("#stage").style.transform = `translate(${(innerWidth - 1080 * s) / 2}px, ${(innerHeight - 1920 * s) / 2}px) scale(${s})`;
+}
+window.__ready = document.fonts.ready.then(() => true);
+if (!location.search.includes("render")) {
+  addEventListener("resize", fit); fit();
+  const audio = new Audio("reel/voice.m4a");
+  const t0 = parseFloat(new URLSearchParams(location.search).get("t")) || 0;
+  let started = null;
+  document.body.addEventListener("click", () => { audio.currentTime = t0; audio.play(); started = performance.now() - t0 * 1000; }, { once: true });
+  (function loop() { render(started == null ? t0 : (performance.now() - started) / 1000); requestAnimationFrame(loop); })();
+}
+</script>
+</body>
+</html>

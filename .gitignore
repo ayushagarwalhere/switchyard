@@ -16,3 +16,5 @@ dist/
 *.pem
 video/*.mp4
 video/stills/
+video/reel/clips/
+/Video-*.mp4

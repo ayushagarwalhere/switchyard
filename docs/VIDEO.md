@@ -1,5 +1,17 @@
 # Submission video
 
+## The voiced 3D reel (1:58, vertical)
+
+[`video/reel.html`](../video/reel.html) is a vertical (1080x1920) low-poly 3D short: a developer and Switchy, the lime robot, talk through the problem, the cause, and Switchyard with every feature. Cards in between show the real numbers from the published run, and the subtitles follow the voices.
+
+```bash
+pip install edge-tts numpy playwright imageio-ffmpeg
+python video/reel_voice.py      # the dialogue -> voices (Microsoft neural TTS), mouth timing, video/reel/voice.m4a
+python video/render.py --page reel.html --size 1080x1920 --audio reel/voice.m4a --out video/switchyard-reel.mp4
+```
+
+To change a line, edit `LINES` in [`video/reel_voice.py`](../video/reel_voice.py) and run both commands again; the timing, cuts and cards follow the new audio. Open `video/reel.html` in a browser and click to preview it with sound.
+
 ## The animated video (2:45, ready to upload)
 
 [`video/switchyard.html`](../video/switchyard.html) is a motion-graphics video in the reel style: hook, problem, cause, solution, how it works, results, every feature, call to action. Every number on screen comes from the published run. Render it to MP4 (1920x1080, 30 fps):
