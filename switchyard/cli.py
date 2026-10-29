@@ -10,6 +10,8 @@ Build and ship (vibe coding on Nebius + NVIDIA):
   switchyard secure [path]                 secrets, vulnerable deps, risky config, every LLM call
   switchyard deploy [path]                 container -> Nebius Container Registry -> Nebius Serverless endpoint
   switchyard deploy status|logs|delete     manage what you deployed (endpoints bill until deleted)
+  switchyard deploy logs --explain         Nemotron reads the logs and says why the app is failing
+  switchyard oncall                        keep deployed apps running: WispOps finds the cause, you approve the fix
 
 All commands:
   switchyard scan   [path]                 list LLM call sites (no API calls, no key needed)
@@ -129,8 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
     cd.add_argument("--budget", type=float, default=0.6)
 
     dp = sub.add_parser("deploy", help="ship the app to Nebius: secure check, container, registry, Serverless endpoint")
-    dp.add_argument("target", nargs="?", default=".", help="app folder (default .), or: status | logs | delete")
-    dp.add_argument("app", nargs="?", help="with status/logs/delete: which deployed app")
+    dp.add_argument("target", nargs="?", default=".",
+                    help="app folder (default .), or: status | logs | delete | restart | rollback | release")
+    dp.add_argument("app", nargs="?", help="with status/logs/...: which deployed app")
+    dp.add_argument("to", nargs="?", help="with rollback: the release (image tag) to go back to")
+    dp.add_argument("--explain", action="store_true", help="with logs: Nemotron explains why the app is failing")
     dp.add_argument("--name", help="app name on Nebius (default: the folder name)")
     dp.add_argument("--platform", default=None, help="Nebius platform (default cpu-d3)")
     dp.add_argument("--preset", default=None, help="vCPU/RAM preset for the platform (default 4vcpu-16gb)")
@@ -138,6 +143,11 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--force", action="store_true", help="deploy even with blocking security findings")
     dp.add_argument("--local", action="store_true",
                     help="run the same image, env and health check in local Docker instead of Nebius (free)")
+
+    oc = sub.add_parser("oncall", help="keep deployed apps running (WispOps): cause, one fix, your approval, proof")
+    oc.add_argument("--voice", action="store_true", help="require approvals said back with Wispr Flow (default: typed)")
+    oc.add_argument("--port", type=int, help="console port (default 7300)")
+    oc.add_argument("--write-only", action="store_true", help="write the WispOps config and print its path")
 
     se = sub.add_parser("secure", help="whole-app security check before shipping (secrets, vulnerable deps, config, LLM calls)")
     se.add_argument("repo", nargs="?", default=".")
@@ -295,6 +305,18 @@ def _dispatch(args) -> int:
 
     if args.cmd == "code":
         return _code(args)
+
+    if args.cmd == "oncall":
+        from . import oncall
+        try:
+            if args.write_only:
+                cfg = oncall.write_config(args.voice, args.port)
+                print(f"{oncall.CONFIG} ({sum(1 for s in cfg['services'] if s.get('_switchyard'))} app(s))")
+                return 0
+            return oncall.start(args.voice, args.port)
+        except RuntimeError as e:
+            print(f"oncall: {e}", file=sys.stderr)
+            return 1
 
     if args.cmd == "ci":
         from .gitops import add_ci
@@ -742,12 +764,27 @@ def _new(args) -> int:
 def _deploy(args) -> int:
     from . import deploy
     try:
-        if args.target in ("status", "logs", "delete"):
+        if args.target in ("status", "logs", "delete", "restart", "rollback", "release"):
             if args.target == "status":
                 st = deploy.status(args.app)
                 print(f"{st['name']}: {st['state']}  {st['url'] or ''}  ({st['endpoint']})")
             elif args.target == "logs":
-                print(deploy.logs(args.app))
+                text = deploy.logs(args.app)
+                if args.explain:
+                    from .diagnose import explain
+                    print(explain(text, args.app))
+                else:
+                    print(text)
+            elif args.target == "release":
+                print(deploy.release(args.app))
+            elif args.target == "restart":
+                print(f"restarted {deploy.restart(args.app)}")
+            elif args.target == "rollback":
+                if not args.to:
+                    print("which release? switchyard deploy rollback <app> <tag>", file=sys.stderr)
+                    return 2
+                res = deploy.rollback(args.app, args.to)
+                print(f"{res['name']} now runs {res['image']}")
             else:
                 print(f"deleted {deploy.delete(args.app)} (it no longer bills)")
             return 0

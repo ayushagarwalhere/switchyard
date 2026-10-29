@@ -242,7 +242,8 @@ class Deployer:
         healthy = self.health(url, auth_token)
         rec = {"endpoint_id": ep_id, "endpoint": ep_name, "image": image, "url": url, "private": self.private,
                "token": auth_token, "path": str(self.root), "created": time.time(), "healthy": healthy,
-               "env": sorted(env)}
+               "env": sorted(env), "container_port": info["port"], "platform": self.platform, "preset": self.preset,
+               "history": ((old or {}).get("history") or [])[-9:] + [image]}
         st["apps"][self.name] = rec
         save_state(st)
         if old and old.get("endpoint_id") and healthy:
@@ -260,9 +261,12 @@ class Deployer:
         self.emit(f"Building {image} (linux/amd64)…")
         self.sh.run(["docker", "build", "--platform", "linux/amd64", "-t", image, "."], cwd=str(self.root))
         self.sh.run(["docker", "rm", "-f", container], check=False)
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", 0))
-            port = sock.getsockname()[1]
+        old = st["apps"].get(self.name) or {}
+        port = old.get("host_port")
+        if not port:
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                port = sock.getsockname()[1]
         env = app_env(self.root)
         cmd = ["docker", "run", "-d", "--name", container, "-p", f"127.0.0.1:{port}:{info['port']}"]
         for k in env:
@@ -272,7 +276,8 @@ class Deployer:
         url = f"http://127.0.0.1:{port}"
         healthy = self.health(url, None)
         rec = {"local": True, "container": container, "image": image, "url": url, "path": str(self.root),
-               "created": time.time(), "healthy": healthy, "env": sorted(env)}
+               "created": time.time(), "healthy": healthy, "env": sorted(env), "host_port": port,
+               "container_port": info["port"], "history": (old.get("history") or [])[-9:] + [image]}
         st["apps"][self.name] = rec
         save_state(st)
         return {**rec, "name": self.name, "endpoint": container, "wrote_dockerfile": wrote_dockerfile,
@@ -383,3 +388,64 @@ def delete(name: str | None = None, shell: Shell | None = None) -> str:
     st["apps"].pop(name, None)
     save_state(st)
     return name
+
+
+# -- operations (used by `switchyard oncall` / WispOps as its restart, rollback and release commands) --------
+
+def release(name: str | None = None) -> str:
+    """The running release: the image tag."""
+    _, rec = _pick(name)
+    return rec["image"].rsplit(":", 1)[-1]
+
+
+def restart(name: str | None = None, shell: Shell | None = None) -> str:
+    name, rec = _pick(name)
+    sh = shell or Shell()
+    if rec.get("local"):
+        sh.run(["docker", "restart", rec["container"]])
+    else:
+        sh.nebius("ai", "endpoint", "stop", rec["endpoint_id"], check=False)
+        sh.nebius("ai", "endpoint", "start", rec["endpoint_id"])
+    return name
+
+
+def rollback(name: str | None, to: str, shell: Shell | None = None, emit=print) -> dict:
+    """Run an earlier image of this app again (`to` is a tag from its history, or the full image)."""
+    name, rec = _pick(name)
+    sh = shell or Shell()
+    image = next((i for i in reversed(rec.get("history") or []) if i == to or i.rsplit(":", 1)[-1] == to), None)
+    if not image:
+        known = ", ".join(i.rsplit(":", 1)[-1] for i in rec.get("history") or [])
+        raise DeployError(f"{to} isn't a release of {name}; known: {known}")
+    st = load_state()
+    env = app_env(Path(rec["path"])) if rec.get("path") else {}
+    if rec.get("local"):
+        sh.run(["docker", "rm", "-f", rec["container"]], check=False)
+        cmd = ["docker", "run", "-d", "--name", rec["container"], "-p",
+               f"127.0.0.1:{rec['host_port']}:{rec['container_port']}"]
+        for k in env:
+            cmd += ["-e", k]
+        sh.run(cmd + [image], env=env)
+        st["apps"][name] = {**rec, "image": image, "created": time.time()}
+    else:
+        tag = time.strftime("%Y%m%d-%H%M%S")
+        ep_name = f"{name}-{tag}"
+        args = ["ai", "endpoint", "create", "--name", ep_name, "--image", image, "--platform", rec["platform"],
+                "--preset", rec["preset"], "--container-port", str(rec["container_port"]), "--format", "json",
+                "--auth", "token" if rec.get("private") else "none"]
+        if rec.get("private") and rec.get("token"):
+            args += ["--token", rec["token"]]
+        for k, v in env.items():
+            args += ["--env", f"{k}={v}"]
+        subnet = _default_subnet(sh)
+        if subnet:
+            args += ["--subnet-id", subnet]
+        emit(f"Creating {ep_name} from {image}")
+        created = _json(sh.nebius(*args))
+        ep_id = (created.get("metadata") or {}).get("id") or _endpoint_id(sh, ep_name)
+        url = Deployer(rec["path"], name, shell=sh, emit=emit).await_url(ep_id)
+        sh.nebius("ai", "endpoint", "delete", rec["endpoint_id"], check=False)
+        st["apps"][name] = {**rec, "image": image, "endpoint_id": ep_id, "endpoint": ep_name, "url": url,
+                            "created": time.time()}
+    save_state(st)
+    return {"name": name, "image": image}

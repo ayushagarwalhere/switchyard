@@ -1,0 +1,48 @@
+{
+  "name": "wisprops",
+  "version": "1.3.0",
+  "description": "An on-call agent you run hands-free with Wispr Flow: it finds the cause and who caused it, proposes one allowlisted fix, applies it only on a dictated approval, proves the recovery, and handles the repeat while you sleep. Docker, pm2, systemd, Kubernetes or any HTTP health check.",
+  "bin": {
+    "wisprops": "bin/wisprops.js"
+  },
+  "scripts": {
+    "demo": "node bin/wisprops.js demo",
+    "start": "node bin/wisprops.js start",
+    "test": "node --test",
+    "judge": "node bin/wisprops.js judge"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "files": [
+    "bin",
+    "server",
+    "src",
+    "public",
+    "demo/patient.js",
+    "demo/ctl.js",
+    "demo/wisprops.config.json",
+    "console.html",
+    "README.md",
+    "LICENSE",
+    "Dockerfile",
+    "docker-compose.example.yml"
+  ],
+  "author": "Ayush Agarwal",
+  "license": "MIT",
+  "keywords": [
+    "on-call",
+    "incident-response",
+    "sre",
+    "voice",
+    "wispr-flow",
+    "mcp",
+    "docker",
+    "kubernetes",
+    "pm2",
+    "alertmanager",
+    "telegram",
+    "change-ledger",
+    "hands-free"
+  ]
+}

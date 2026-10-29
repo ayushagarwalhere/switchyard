@@ -1,0 +1,29 @@
+{
+  "port": 7300,
+  "settings": {
+    "intervalMs": 2000,
+    "failAfter": 2,
+    "goldenAfter": 2,
+    "verifyOk": 3,
+    "verifyWindowMs": 30000,
+    "allowTyped": false,
+    "handoffHour": 7
+  },
+  "notify": {
+    "ntfy": "",
+    "webhook": ""
+  },
+  "pr": { "push": false },
+  "services": [
+    {
+      "id": "checkout-api",
+      "name": "checkout-api",
+      "health": { "url": "http://127.0.0.1:7301/healthz", "timeoutMs": 2000, "expect": 200 },
+      "config": { "file": "runtime/config.json" },
+      "release": { "file": "runtime/release.txt" },
+      "rollback": ["node", "ctl.js", "release", "{to}"],
+      "restart": ["node", "ctl.js", "restart"],
+      "logs": "runtime/patient.log"
+    }
+  ]
+}

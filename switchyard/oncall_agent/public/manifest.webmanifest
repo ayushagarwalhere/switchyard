@@ -1,0 +1,18 @@
+{
+  "name": "WisprOps",
+  "short_name": "WisprOps",
+  "description": "On-call you answer with Wispr Flow.",
+  "start_url": "../console.html",
+  "scope": "../",
+  "display": "standalone",
+  "background_color": "#0a1020",
+  "theme_color": "#0b1b33",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

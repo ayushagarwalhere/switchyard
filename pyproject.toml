@@ -25,7 +25,7 @@ switchyard = "switchyard.cli:main"
 packages = ["switchyard"]
 
 [tool.setuptools.package-data]
-switchyard = ["web/*", "demo_apps/python/*", "demo_apps/nextjs/*", "demo_apps/nextjs/lib/*", "demo_apps/nextjs/app/api/chat/*"]
+switchyard = ["web/*", "web/assets/*", "oncall_agent/*", "oncall_agent/bin/*", "oncall_agent/server/*", "oncall_agent/src/*", "oncall_agent/public/*", "oncall_agent/demo/*", "demo_apps/python/*", "demo_apps/nextjs/*", "demo_apps/nextjs/lib/*", "demo_apps/nextjs/app/api/chat/*"]
 
 [tool.pytest.ini_options]
 addopts = "-q -p no:cacheprovider --basetemp=.pytest_tmp"

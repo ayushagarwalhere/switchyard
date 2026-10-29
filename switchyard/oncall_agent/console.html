@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>WisprOps</title>
+  <meta name="description" content="WisprOps: an on-call agent for your own services. It finds the cause, proposes one safe fix, applies it only when you approve it out loud with Wispr Flow, proves the recovery, and handles the repeat while you sleep." />
+  <meta name="theme-color" content="#0f1013" />
+  <link rel="icon" href="public/icon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="public/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="public/icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=DM+Sans:opsz,wght@9..40,400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="public/styles.css" />
+</head>
+<body>
+  <a class="skip" href="#say">Skip to the Talk box</a>
+  <header class="top">
+    <a class="brand" href="#/board"><span class="logo" aria-hidden="true"></span>WisprOps</a>
+    <nav id="nav" aria-label="Sections">
+      <a href="#/board">Board</a>
+      <a href="#/services">Services</a>
+      <a href="#/changes">Changes</a>
+      <a href="#/receipts">Audit</a>
+      <a href="#/orders">Standing orders</a>
+      <a href="#/handoff">Handoff</a>
+      <a href="#/analytics">Analytics</a>
+      <a href="#/wispr" class="wispr-link">Wispr</a>
+      <a href="#/demo" class="demo-link">Demo</a>
+      <a href="#/settings">Settings</a>
+      <a href="#/docs">Docs</a>
+    </nav>
+    <span id="mode" class="chip"></span>
+  </header>
+  <div id="demobar" hidden></div>
+  <div id="frozen" role="status" hidden></div>
+  <div id="banner" role="alert" hidden></div>
+  <main id="view" tabindex="-1"></main>
+  <aside id="talk" class="talk" aria-label="Talk to WisprOps">
+    <div class="talk-head">
+      <div>
+        <div class="eyebrow">Talk · hold your Wispr Flow key</div>
+        <div id="talk-title" class="talk-title">Everything</div>
+      </div>
+      <div class="row">
+        <button id="all" class="tiny" title="Talk about everything instead of one incident" hidden>All services</button>
+        <button id="nohands" class="tiny" aria-pressed="false" title="No hands: Wispr dictations send themselves after a short pause, pages are read aloud, and the Talk box keeps focus">🙌 No hands</button>
+        <button id="rb" class="tiny" title="Read the pending fix aloud. Speaking over it withdraws the fix.">🔊 Read it back</button>
+      </div>
+    </div>
+    <ol id="timeline" class="timeline" aria-live="polite"></ol>
+    <div id="pending"></div>
+    <div id="quick" class="quick"></div>
+    <div class="say-box">
+      <label for="say" class="sr">Say a command</label>
+      <textarea id="say" rows="2" placeholder="Click here, hold your Wispr Flow key and speak. Enter sends."></textarea>
+      <div class="spread small">
+        <span id="meter" class="muted">Waiting for Wispr…</span>
+        <button id="send" class="primary tiny">Send</button>
+      </div>
+    </div>
+  </aside>
+  <button id="talkfab" class="primary" aria-label="Jump to the Talk box">🎙 Talk</button>
+  <footer class="site-foot">
+    <div class="foot-top">
+      <div class="foot-brand">
+        <a class="foot-name" href="#/board"><span class="logo" aria-hidden="true"></span>WisprOps</a>
+        <p>An on-call agent for developers. Finds the cause, fixes it safely, checks it held. Approve by voice with Wispr Flow.</p>
+      </div>
+      <nav class="foot-cols" aria-label="Footer">
+        <div class="foot-col"><div class="foot-label">Console</div><a href="#/board">Board</a><a href="#/changes">Changes</a><a href="#/receipts">Audit log</a><a href="#/orders">Standing orders</a><a href="#/handoff">Handoff</a></div>
+        <div class="foot-col"><div class="foot-label">Use it</div><a href="#/demo">Demo</a><a href="https://github.com/ayushagarwalhere/wisprops#install-and-first-run-one-minute" target="_blank" rel="noopener">Install</a><a href="#/docs">Docs</a><a href="#/settings">Settings</a></div>
+        <div class="foot-col"><div class="foot-label">Security</div><a href="https://github.com/ayushagarwalhere/wisprops#security" target="_blank" rel="noopener">How it stays safe</a><a href="#/wispr">The Wispr check</a><a href="#/receipts">Approval records</a></div>
+        <div class="foot-col"><div class="foot-label">About</div><a href="https://github.com/ayushagarwalhere/wisprops" target="_blank" rel="noopener">Source on GitHub</a><a href="https://www.wemakedevs.org/wispr" target="_blank" rel="noopener">The challenge</a><a href="https://wisprflow.ai" target="_blank" rel="noopener">Wispr Flow</a></div>
+      </nav>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Ayush Agarwal · MIT license</span>
+      <span>Made for No Hands: The Wispr Challenge · not affiliated with Wispr</span>
+      <span class="mono">v1.3.0</span>
+    </div>
+  </footer>
+  <div id="modal" hidden><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="spread"><h3 id="modal-title"></h3><button id="modal-x" class="tiny">Close</button></div><pre id="modal-body"></pre><div class="row" id="modal-actions"></div></div></div>
+  <script src="src/agent.js"></script>
+  <script src="src/sim.js"></script>
+  <script src="public/console.js"></script>
+</body>
+</html>
