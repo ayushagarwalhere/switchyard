@@ -1,7 +1,5 @@
 # Devpost submission draft
 
-Fill the `[from recorded run]` numbers once the demo run is recorded. Every number must come from a real run: `switchyard publish <run-id>` prints them (calls switched, % cheaper, repairs, analysis cost) and writes the same numbers into the README.
-
 **Track:** Coding and Agentic Engineering
 **Tagline:** Move every LLM call in your app to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, with tests that prove each switch and an audit that checks it can't be hijacked.
 
@@ -22,7 +20,7 @@ Point Switchyard at a repository. It:
 
 **Built for developers, not demos.** `pipx install`, `switchyard setup` (key checked and saved once), then `switchyard run` in the app's folder: it shows the calls and the cost estimate, asks before spending, and ends with "apply on a new branch?". The same flows ship as **agent skills** for Claude Code, Codex and Cursor (`npx skills add ayushagarwalhere/switchyard`; scanned by NVIDIA SkillSpector in CI), as a **GitHub Action** (migrate-and-open-a-PR, nightly check, audit to the Security tab via SARIF), and as a **Python API**.
 
-On [daveebbelaar/ai-cookbook](https://github.com/daveebbelaar/ai-cookbook) workflow patterns (11 GPT-4o calls), Switchyard switched [from recorded run] calls, making requests [from recorded run]% cheaper. The whole analysis cost [from recorded run] in Token Factory credits.
+On [daveebbelaar/ai-cookbook](https://github.com/daveebbelaar/ai-cookbook) workflow patterns (11 calls: 8 on GPT-4o, 3 on GPT-4o-mini), Switchyard switched **7 of 11 calls to Nemotron 3.5 Lightning**, making those requests **97.6% cheaper** at list prices. 2 of them passed only after Ultra adapted the prompt. The 4 long-form writing calls stayed on their original model because no Nemotron model reached the bar, or the one that did cost more. The whole study cost **$0.50** in Token Factory credits (791 calls, 8 minutes). On a Next.js app (OpenAI SDK + Vercel AI SDK), 4 of 4 calls switched, 94.4% cheaper, for $0.10.
 
 ## How we built it
 - **Python + `ast`** for the scanner and the code rewriter, which edits exact AST positions and preserves line endings.
@@ -46,7 +44,10 @@ On [daveebbelaar/ai-cookbook](https://github.com/daveebbelaar/ai-cookbook) workf
 - Security findings come with fixes that were re-tested, not just advice.
 
 ## What we learned
-[fill from experience: e.g. how Lightning vs Super behaved on structured outputs, reasoning on/off trade-offs]
+- **Our grader was the bug, not the models.** The first real run switched 1 call of 11. Reading the failures showed exact-match checks on confidence scores, a grader that saw only the first 3,000 characters, tool calls graded on the function name instead of the arguments, and a demo `user_input = "..."` at the bottom of a file that the scanner substituted for the real input. Fixing those took the same code to 7 of 11, with every remaining failure one we'd defend.
+- **Schemas need to be in the prompt.** Guided decoding enforces structure, not meaning: without the field descriptions in the prompt, Nemotron filled the right shape with the wrong content.
+- **The cheapest model is usually enough for structured calls.** Every classification, routing and extraction call landed on Lightning. Open-ended writing was where the bigger models, or the original, stayed necessary.
+- **Tests can be wrong too.** When Lightning, Super and Ultra all gave the same answer against a reference, the reference was the error. Switchyard now sets those tests aside and says so.
 
 ## What's next
 - Following prompts imported from other JavaScript modules when building test templates.
