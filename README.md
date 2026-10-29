@@ -4,6 +4,17 @@
 
 **Move every LLM call in your app to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, with tests that prove each switch.**
 
+![Switchyard: a recorded migration of ai-cookbook, with the tests and bake-off behind each switch](docs/img/run.jpg)
+
+| On a real repo ([ai-cookbook](https://github.com/daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns), 11 LLM calls) | |
+|---|---|
+| Calls switched to Nemotron 3.5 Lightning | **7 of 11** (a second run, with Tavily inputs, also switched 7) |
+| Cheaper per request on those calls | **97.6%** (about $699.89 → $16.80 a month at 100k requests per call) |
+| Cost of the whole study on Token Factory | **$0.50** (791 Nemotron calls, 8 minutes) |
+| Calls it refused to switch | **4** long-form writing calls, where no cheaper model reached the bar |
+
+**Judges:** the [5-minute guide](docs/JUDGES.md) shows where to look. To browse both recorded runs with no key: `pipx install git+https://github.com/ayushagarwalhere/switchyard && switchyard serve`, then press **Judge tour**.
+
 Most production apps send every request to one frontier model. Many of those calls are routing, classification, extraction or short rewrites that a smaller open model handles just as well, at a fraction of the price. Nobody switches because nobody knows *which* calls are safe to move.
 
 Switchyard answers that per call site. Point it at a repository and it:

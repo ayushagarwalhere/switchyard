@@ -1,5 +1,23 @@
 # Judging Switchyard in 5 minutes
 
+## What to look at, in order
+
+| Time | What | Where |
+|---|---|---|
+| 3 min | The video: problem, cause, solution, results, every feature | Devpost page ([source](../video/switchyard.html), every number from the recorded run) |
+| 3 min | The judge tour of a real migration | the web app, **Judge tour** |
+| 1 min | The two recorded runs side by side: 7/11 both times; the second used Tavily inputs for every call | the web app, **Runs** |
+| 2 min | Where Nemotron and Token Factory are used, and what is deterministic | below |
+
+No live link at hand? Browse the same recorded runs locally, with no key and no spend:
+
+```bash
+pipx install git+https://github.com/ayushagarwalhere/switchyard
+switchyard serve          # downloads the published runs once, then open http://127.0.0.1:8000/#tour
+```
+
+Direct links once it's running: `#20261029-142754-6b1f:patch` (the diff), `#20261029-142754-6b1f:savings` (the bill at your volume), `#20261029-150732-a954:sites` (the Tavily run: open any call's tests to see the web sources).
+
 ## Fastest path (no setup)
 
 1. Open the live demo and press **Judge tour**. It walks through one complete, recorded migration using the run's real data:

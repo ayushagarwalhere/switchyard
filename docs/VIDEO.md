@@ -1,4 +1,34 @@
-# Demo video script (target 2:45, hard limit 3:00)
+# Submission video
+
+## The animated video (2:45, ready to upload)
+
+[`video/switchyard.html`](../video/switchyard.html) is a motion-graphics video in the reel style: hook, problem, cause, solution, how it works, results, every feature, call to action. Every number on screen comes from the published run. Render it to MP4 (1920x1080, 30 fps):
+
+```bash
+pip install playwright imageio-ffmpeg
+python video/render.py                       # -> video/switchyard.mp4 (uses Edge; --channel chrome or '' for Playwright's Chromium)
+python video/render.py --music track.mp3     # optional music bed, faded out at the end
+python video/render.py --stills 5,60,110     # check single frames
+```
+
+Open `video/switchyard.html` in a browser to preview it live (`?t=60` jumps to 1:00).
+
+The text on screen carries the story, so it works without sound. To add a voice-over, read this over the matching scene:
+
+| Time | Scene | Voice-over |
+|---|---|---|
+| 0:00–0:10 | The bill: $699.89 a month, crossed out, $16.80 | "This app spends seven hundred dollars a month on LLM calls. After Switchyard: seventeen. Same app." |
+| 0:10–0:24 | The problem: 11 calls, all on GPT-4o | "Eleven calls, every one on a frontier model. Seven of them are routing, classification and extraction: jobs a small model does fine." |
+| 0:24–0:40 | The cause: three cards | "Nobody switches, because prompts have no tests, they're tuned for one model, and checking by hand takes weeks." |
+| 0:40–0:54 | The solution: tracks splitting to Lightning, Super, Ultra | "Switchyard finds every LLM call, tests it on NVIDIA Nemotron, and moves each one to the cheapest model that passes. One command." |
+| 0:54–1:46 | How it works: 8 steps | "It scans the code. A Nemotron Super agent investigates each call. Nemotron Ultra writes the tests, with real inputs from Tavily. Every Nemotron tier runs a bake-off. Near-misses get their prompt adapted by Ultra. Then it patches the code, runs it for real against Token Factory, and attacks every switched prompt." |
+| 1:46–2:02 | Results | "On a real repo: 7 of 11 calls switched, 97.6 percent cheaper, and the whole study cost fifty cents. Four writing calls stayed put: it says no when it should." |
+| 2:02–2:14 | The app | "Every switch ships with the tests that prove it." |
+| 2:14–2:33 | Everything in the box | "A CLI, coding-agent skills, an MCP server, a GitHub Action, regression checks, a security audit, Python and TypeScript." |
+| 2:33–2:45 | Call to action | "Stop paying frontier prices for routing. Switchyard." |
+
+## Alternative: a screen recording of the app
+
 
 The rules require showing the project working and how it uses Token Factory and Nemotron.
 
