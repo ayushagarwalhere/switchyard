@@ -16,6 +16,7 @@ Build and ship (vibe coding on Nebius + NVIDIA):
 All commands:
   switchyard scan   [path]                 list LLM call sites (no API calls, no key needed)
   switchyard run    [path | git url]       test every call site on Nemotron and write a patch
+  switchyard router [--run <run>]          live OpenAI-compatible router: each feature -> its tested model, fallback, metering
   switchyard apply  [run] [checkout]       apply the latest patch on a new branch (no commit)
   switchyard pr     [run] [checkout]       apply + commit + push + open a GitHub PR (gh CLI)
   switchyard check  [run] --repo .         CI guard: re-run saved tests, fail on drift
@@ -143,6 +144,14 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--force", action="store_true", help="deploy even with blocking security findings")
     dp.add_argument("--local", action="store_true",
                     help="run the same image, env and health check in local Docker instead of Nebius (free)")
+
+    ro = sub.add_parser("router", help="live model router: each AI feature -> its tested Nemotron model, with fallback and metering")
+    ro.add_argument("--port", type=int, default=8787)
+    ro.add_argument("--host", default="127.0.0.1")
+    ro.add_argument("--run", help="route by a finished migration run's decisions (run id or path; 'latest' works)")
+    ro.add_argument("--save", action="store_true", help="with --run: save its routes to ~/.switchyard/routes.json and exit")
+    ro.add_argument("--stats", action="store_true", help="print per-feature calls, fallbacks, latency, cost and savings")
+    ro.add_argument("--routes", action="store_true", help="print the routing table")
 
     oc = sub.add_parser("oncall", help="keep deployed apps running (WispOps): cause, one fix, your approval, proof")
     oc.add_argument("--voice", action="store_true", help="require approvals said back with Wispr Flow (default: typed)")
@@ -305,6 +314,9 @@ def _dispatch(args) -> int:
 
     if args.cmd == "code":
         return _code(args)
+
+    if args.cmd == "router":
+        return _router(args)
 
     if args.cmd == "oncall":
         from . import oncall
@@ -818,3 +830,31 @@ def _code(args) -> int:
         print(res["test_log"])
     print("Review with `git diff`; nothing was committed.")
     return 0 if res["tests_ok"] else 1
+
+
+def _router(args) -> int:
+    from . import router
+    run = args.run
+    if run == "latest":
+        from .check import latest_run
+        found = latest_run()
+        run = str(found) if found else None
+    if args.stats:
+        print(json.dumps(router.stats_summary(), indent=1))
+        return 0
+    if args.routes or args.save:
+        routes = router.load_routes()
+        if run:
+            routes.update(router.routes_from_run(run))
+        if args.save:
+            print(f"saved {len(routes)} routes to {router.save_routes(routes)}")
+        else:
+            for name, r in sorted(routes.items()):
+                print(f"{name:<28} -> {r.get('model')}" + (f"  (fallback: {', '.join(r.get('fallback') or [])})" if r.get("fallback") else ""))
+        return 0
+    if not config.api_key():
+        print("No Token Factory key yet: run `switchyard setup` first.", file=sys.stderr)
+        return 2
+    print(router.snippet(args.port))
+    router.serve(args.host, args.port, run=run)
+    return 0
