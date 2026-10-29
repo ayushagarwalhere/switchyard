@@ -314,3 +314,6 @@ button.secondary:disabled { opacity: .45; cursor: progress; }
 .sb-note { padding: 10px 18px 14px; margin: 0; }
 @media (max-width: 760px) { .sb-code { grid-template-columns: 1fr; } .sb-files { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--line); } #sbFrame { height: 520px; } }
 .sb-actions .secondary, .sb-actions .btn-sm { width: auto; margin: 0; }
+
+/* let the side column shrink on phones instead of widening the page */
+.side { min-width: 0; }

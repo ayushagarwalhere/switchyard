@@ -82,7 +82,7 @@
       text: "What the switch saves at your volume. Drag the slider to see the monthly bill before and after.",
       available: hasRuns,
       prepare: () => showTab("savings"),
-      target: () => [q("#runView .tabs"), q('#runView .tab[data-pane="savings"] .card')],
+      target: () => [q("#runView .tabs"), q('#runView .tab[data-pane="savings"] .money .hl') || q('#runView .tab[data-pane="savings"] .card')],
     },
     {
       title: "The patch",
