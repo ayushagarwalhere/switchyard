@@ -3,14 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Switchyard</title>
-<meta name="description" content="Move your app's LLM calls to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, with tests that prove each switch.">
+<title>Switchyard · the Nebius ecosystem for everyday developers</title>
+<meta name="description" content="Switchyard is the Nebius ecosystem for everyday developers: it routes every AI call in your app to the right NVIDIA Nemotron model, with tests that prove it, then helps you build, secure, ship and keep your app running on Nebius.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2376b900'/%3E%3Cpath d='M6 22h20M6 22c6 0 8-12 20-12' stroke='%23071' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <link rel="stylesheet" href="/hero.css">
 <link rel="stylesheet" href="/tour.css">
+<link rel="stylesheet" href="/guide.css">
+<style>/* the headline is longer than it used to be: a little smaller and wider on desktop so it sits on two lines */
+@media (min-width: 1001px) { .hero-inner > .hero-title { max-width: 940px; font-size: clamp(2.6rem, 4.6vw, 4.4rem); } }</style>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js" } }</script>
 </head>
 <body>
@@ -35,8 +38,8 @@
   <div class="hero-label" id="heroLabel" role="status" aria-live="polite"></div>
   <div class="hero-inner">
     <p class="hero-kicker"><span class="pulse-dot"></span> NVIDIA Nemotron · Nebius Token Factory</p>
-    <h1 class="hero-title">Your LLM bill,<br><em>re-routed</em> with receipts.</h1>
-    <p class="hero-sub">Switchyard finds every LLM call in your code, tests it on Nemotron Lightning, Super and Ultra, and switches each one to the cheapest model that passes. Every switch ships with the tests that prove it.</p>
+    <h1 class="hero-title">The Nebius ecosystem<br>for <em>everyday developers</em>.</h1>
+    <p class="hero-sub">Switchyard routes every AI call in your app to the right NVIDIA Nemotron model, with tests that prove it. Then it helps you build, secure, ship and keep your app running on Nebius.</p>
     <div class="hero-cta">
       <a class="btn-glow" href="#app" data-scroll="#app" data-focus="#source">Start a migration</a>
       <a class="btn-ghost" href="#app" data-scroll="#app" data-focus="#auditSource">Free audit of any repo</a>
@@ -223,6 +226,7 @@
 <dialog id="caseDlg"><div id="caseBody"></div><form method="dialog"><button class="btn">Close</button></form></dialog>
 <script src="/tour.js"></script>
 <script src="/build.js" defer></script>
+<script src="/guide.js"></script>
 <script src="/app.js"></script>
 <script type="module" src="/hero.js"></script>
 </body>

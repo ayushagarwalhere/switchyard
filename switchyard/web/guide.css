@@ -1,0 +1,116 @@
+/* Switchyard guide: floating launcher, spotlight, and the bird with its speech bubble. */
+.guide-launch {
+  position: fixed; right: calc(18px + var(--guide-gap, 0px)); bottom: calc(14px + var(--guide-gap-b, 0px)); z-index: 40;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 16px 5px 6px; border-radius: 99px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+  color: var(--text); font: 600 .88rem Inter, system-ui, sans-serif; cursor: pointer;
+  box-shadow: 0 14px 34px -16px rgba(0, 0, 0, .6);
+  transition: transform .45s cubic-bezier(.2, .8, .2, 1), border-color .3s, box-shadow .45s;
+  animation: guide-pop .6s cubic-bezier(.2, .9, .3, 1.3) both;
+}
+.guide-launch svg { width: 34px; height: 34px; color: var(--text); flex: none; }
+.guide-launch:hover { transform: translateY(-2px); border-color: var(--accent); box-shadow: 0 18px 40px -16px rgba(118, 185, 0, .55); }
+.guide-launch:hover .gw-l { animation: guide-wave .5s ease-in-out 2; }
+.guide-launch:hover .gw-r { animation: guide-wave-r .5s ease-in-out 2; }
+.guide-launch:focus-visible, .guide button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.guide-launch[hidden], .guide[hidden] { display: none !important; }
+:root[data-theme="light"] .guide-launch { box-shadow: 0 14px 30px -18px rgba(30, 50, 30, .45); }
+
+.gw-l { transform-origin: 14px 34px; }
+.gw-r { transform-origin: 50px 34px; }
+@keyframes guide-wave { 50% { transform: rotate(22deg); } }
+@keyframes guide-wave-r { 50% { transform: rotate(-22deg); } }
+@keyframes guide-pop { from { opacity: 0; transform: translateY(10px) scale(.9); } }
+
+.guide-probe { position: fixed; right: 0; bottom: 0; width: 0; height: 0; pointer-events: none; visibility: hidden; }
+
+/* spotlight: an outline around the step's element, the rest of the page dimmed a little */
+.guide-spot {
+  position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none;
+  border-radius: 16px; opacity: 0; transition: opacity .35s ease;
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 7px var(--accent-soft), 0 0 0 200vmax rgba(3, 7, 5, .38);
+}
+:root[data-theme="light"] .guide-spot { box-shadow: 0 0 0 2px var(--accent), 0 0 0 7px var(--accent-soft), 0 0 0 200vmax rgba(19, 32, 22, .2); }
+.guide-spot.on { opacity: 1; }
+
+/* the dock: bubble to the left of the bird on wide screens */
+.guide {
+  position: fixed; right: calc(14px + var(--guide-gap, 0px)); bottom: calc(8px + var(--guide-gap-b, 0px)); z-index: 60;
+  display: flex; align-items: flex-end; gap: 0;
+  pointer-events: none;
+}
+.guide > * { pointer-events: auto; }
+.guide-bird { position: relative; width: 150px; height: 150px; flex: none; cursor: pointer; }
+.guide-bird canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
+.guide-fallback { position: absolute; inset: 14% 12% 6%; display: grid; place-items: center; color: var(--text); transition: opacity .4s; }
+.guide-fallback svg { width: 100%; height: 100%; }
+.guide-bird.gl .guide-fallback { opacity: 0; pointer-events: none; }
+.guide-bird.nogl .guide-fallback svg { animation: guide-bob 3.2s ease-in-out infinite; }
+@keyframes guide-bob { 50% { transform: translateY(-4px); } }
+
+.guide-bubble {
+  position: relative; width: min(370px, calc(100vw - 190px));
+  margin: 0 0 54px; padding: 13px 16px 12px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 18px;
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .03) inset;
+  transform-origin: 100% 85%;
+  opacity: 0; transform: translateY(8px) scale(.96);
+  transition: opacity .35s ease, transform .5s cubic-bezier(.2, .9, .3, 1.2);
+}
+:root[data-theme="light"] .guide-bubble { box-shadow: 0 24px 50px -26px rgba(30, 50, 30, .45); }
+.guide.in .guide-bubble { opacity: 1; transform: none; }
+.guide-bubble::after {             /* tail pointing at the bird */
+  content: ""; position: absolute; right: -8px; bottom: 30px; width: 14px; height: 14px;
+  background: var(--panel); transform: rotate(45deg);
+  border-top: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-right: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+.guide-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.guide-who { font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.guide-dots { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+.guide-dots button {
+  width: 7px; height: 7px; padding: 0; border: 0; border-radius: 99px; cursor: pointer;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  transition: width .35s cubic-bezier(.2, .8, .2, 1), background .3s;
+}
+.guide-dots button.done { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.guide-dots button.on { width: 18px; background: var(--accent); }
+.guide-title { margin: 0 0 4px; font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
+.guide-text { margin: 0 0 12px; font-size: .9rem; line-height: 1.5; color: color-mix(in srgb, var(--text) 86%, var(--muted)); }
+.guide-rest { visibility: hidden; }
+.guide-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.guide-ctrl { display: flex; align-items: center; gap: 8px; }
+.guide-grow { flex: 1; }
+.guide-ctrl button { font: 600 .84rem Inter, system-ui, sans-serif; border-radius: 10px; cursor: pointer; padding: 7px 14px; transition: background .25s, border-color .25s, transform .3s; }
+.guide-skip { background: none; border: 0; color: var(--muted); padding-left: 2px !important; }
+.guide-skip:hover { color: var(--text); }
+.guide-skip[hidden] { display: none; }
+.guide-back { background: transparent; border: 1px solid var(--line); color: var(--text); }
+.guide-back:hover:not(:disabled) { border-color: var(--accent); }
+.guide-back:disabled { opacity: .4; cursor: default; }
+.guide-next { background: var(--accent); border: 1px solid var(--accent); color: var(--accent-ink); min-width: 74px; }
+.guide-next:hover { transform: translateY(-1px); }
+
+/* phones: smaller bird under the bubble, bubble spans the width so the controls stay clear */
+@media (max-width: 640px) {
+  .guide { left: calc(10px + var(--guide-x0, 0px)); right: calc(10px + var(--guide-gap, 0px)); bottom: calc(6px + var(--guide-gap-b, 0px)); flex-direction: column; align-items: flex-end; }
+  .guide-bubble { width: 100%; margin: 0 0 4px; padding: 12px 14px 11px; transform-origin: 90% 100%; }
+  .guide-bubble::after { right: 38px; bottom: -8px; transform: rotate(135deg); }
+  .guide-bird { width: 92px; height: 92px; margin-right: 4px; }
+  .guide-text { font-size: .88rem; margin-bottom: 10px; }
+  .guide-launch { right: calc(12px + var(--guide-gap, 0px)); bottom: calc(12px + var(--guide-gap-b, 0px)); padding-right: 14px; font-size: .84rem; }
+  .guide-launch svg { width: 30px; height: 30px; }
+}
+
+body.touring .guide-launch, body.touring .guide, body.touring .guide-spot { display: none !important; }
+@media print { .guide-launch, .guide, .guide-spot { display: none !important; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-launch, .guide-bird.nogl .guide-fallback svg, .guide-launch:hover .gw-l, .guide-launch:hover .gw-r { animation: none; }
+  .guide-bubble, .guide-dots button, .guide-spot, .guide-launch { transition: none; }
+  .guide-bubble { transform: none; }
+}

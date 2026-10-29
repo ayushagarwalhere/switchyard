@@ -2,15 +2,20 @@
 
 [![ci](https://github.com/ayushagarwalhere/switchyard/actions/workflows/ci.yml/badge.svg)](https://github.com/ayushagarwalhere/switchyard/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
-**Build, secure, optimize and ship AI apps on NVIDIA Nemotron and Nebius, from one sentence to a live URL.** At its core, Switchyard moves every LLM call in your app to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, with tests that prove each switch.
+**The Nebius ecosystem for everyday developers.** Switchyard routes every AI call in your app to the right NVIDIA Nemotron model on Nebius Token Factory, with tests that prove each switch. Around that core it helps you build the app, review and secure it, ship it to Nebius, and keep it running.
 
-```bash
-switchyard new "a meeting notes app that turns notes into action items"   # Nemotron writes and tests the app
-switchyard code "add a delete button for past meetings"                      # Nemotron changes it, runs the tests
-switchyard secure                                                            # secrets, vulnerable deps, risky config, LLM calls
-switchyard run                                                               # each AI call -> cheapest Nemotron model that passes
-switchyard deploy                                                            # container -> Nebius Container Registry -> Serverless endpoint
-```
+| | Command | What it does for you |
+|---|---|---|
+| **Route** (the core) | `switchyard run` | Tests every AI call on Nemotron Lightning, Super and Ultra and moves each one to the cheapest model that passes. Calls that don't pass stay where they are. |
+| | `switchyard router` | A live OpenAI-compatible gateway: each AI feature goes to its tested model, falls back to the next tier when a call fails, and is metered (cost, latency, fallbacks) per feature. |
+| **Build** | `switchyard new "<idea>"` | Nemotron writes a working app (backend, frontend, AI features, Dockerfile, tests) and fixes it until the tests pass. |
+| | `switchyard code "<change>"` | A Nemotron coding agent edits the app, runs the tests and fixes its own mistakes. |
+| **Review** | `switchyard pr-review` | A PR comment for every change to AI code: cost at your volume, the Nemotron model worth testing, security issues on the changed lines. |
+| **Secure** | `switchyard secure` | Leaked keys, committed `.env`, vulnerable dependencies, debug mode, open CORS, root containers, prompt injection in every LLM call. |
+| **Ship** | `switchyard deploy` | Container → Nebius Container Registry → Nebius Serverless endpoint, health-checked. `--local` runs the same image on your machine. |
+| **Run** | `switchyard oncall` | Keeps deployed apps up with [WispOps](switchyard/oncall_agent/VENDORED.md): finds the change that broke it, proposes one fix (restart or roll back), applies it when you approve, proves it recovered. `switchyard deploy logs --explain` has Nemotron read the logs. |
+
+Everything is also in the web app (with a sandbox that runs your app inside the page), in coding agents (skills and an MCP server), in GitHub Actions and in Python.
 
 ![Switchyard: a recorded migration of ai-cookbook, with the tests and bake-off behind each switch](docs/img/run.jpg)
 
