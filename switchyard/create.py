@@ -224,9 +224,11 @@ def run_tests(dest: Path, timeout: int = 120) -> tuple[bool, str]:
 
 
 class Creator:
-    def __init__(self, idea: str, dest: str | Path | None = None, budget: float = 0.6, emit=print, tf=None):
+    def __init__(self, idea: str, dest: str | Path | None = None, budget: float = 0.6, emit=print, tf=None,
+                 parent: str | Path | None = None):
         self.idea = idea.strip()
         self.dest = Path(dest) if dest else None
+        self.parent = Path(parent) if parent else None
         self.emit = emit
         self.tf = tf or TokenFactory(budget_usd=budget)
 
@@ -255,7 +257,7 @@ class Creator:
     def build(self) -> dict:
         self.emit("Planning the app with Nemotron Super…")
         plan = self.plan()
-        dest = (self.dest or Path.cwd() / plan["name"]).resolve()
+        dest = (self.dest or (self.parent or Path.cwd()) / plan["name"]).resolve()
         if dest.exists() and any(dest.iterdir()):
             raise FileExistsError(f"{dest} already exists and isn't empty; pass --dir to choose another folder")
         self.emit(f"  {plan.get('title', plan['name'])}: {len(plan['endpoints'])} endpoints, "

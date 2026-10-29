@@ -15,13 +15,14 @@ from pathlib import Path
 from . import config, scanner
 
 INSTRUCTIONS = (
-    "Switchyard moves a Python or JavaScript/TypeScript app's LLM calls (OpenAI, Anthropic, LiteLLM, LangChain, Vercel AI SDK) to NVIDIA Nemotron "
-    "on Nebius Token Factory, keeping only switches that pass generated tests, and audits LLM calls for "
-    "security problems. Typical flow: scan_llm_calls (free) -> show the user the calls and estimated cost -> "
-    "start_migration only after the user agrees to a spend limit -> migration_status until done -> "
-    "migration_results -> apply_migration if the user wants the patch. audit_llm_calls is free unless "
-    "probes=true. Never ask the user to paste an API key into the chat; if a key is missing, ask them to "
-    "run `switchyard setup` in a terminal.")
+    "Switchyard is a build-and-ship toolkit for apps on NVIDIA Nemotron and Nebius. Build: create_app writes a "
+    "working, tested app from one sentence; change_app makes a change to an existing app and runs its tests. "
+    "Secure: secure_app checks secrets, vulnerable dependencies, risky config and every LLM call (free). "
+    "Optimize: scan_llm_calls (free) -> show the calls and estimated cost -> start_migration only after the user "
+    "agrees to a spend limit -> migration_status until done -> migration_results -> apply_migration. "
+    "Deploy: deploy_app ships the app to a Nebius Serverless endpoint (it bills until deleted: tell the user, and "
+    "use delete_deployment when they're done). Long tasks return a job_id: poll job_status. Never ask the user to "
+    "paste an API key into the chat; if a key is missing, ask them to run `switchyard setup` in a terminal.")
 
 _RUNS: dict[str, object] = {}
 _lock = threading.Lock()
@@ -161,7 +162,100 @@ def apply_migration(run_id: str = "latest", project_path: str | None = None) -> 
     return {k: (str(v) if isinstance(v, Path) else v) for k, v in res.items()}
 
 
-TOOLS = [scan_llm_calls, audit_llm_calls, start_migration, migration_status, migration_results, apply_migration]
+# -- build, secure, deploy --------------------------------------------------------------------------
+
+_JOBS: dict[str, dict] = {}
+
+
+def _job(kind: str, fn) -> dict:
+    import uuid
+    jid = f"{kind}-{uuid.uuid4().hex[:6]}"
+    rec = {"job_id": jid, "kind": kind, "status": "running", "log": [], "result": None, "error": None}
+    with _lock:
+        _JOBS[jid] = rec
+
+    def work():
+        try:
+            rec["result"] = fn(lambda *a: rec["log"].append(" ".join(str(x) for x in a)))
+            rec["status"] = "done"
+        except Exception as e:  # noqa: BLE001 - reported to the agent
+            rec["status"], rec["error"] = "failed", str(e)
+
+    threading.Thread(target=work, daemon=True, name=f"switchyard-{jid}").start()
+    return {"job_id": jid, "status": "running", "next": "call job_status(job_id) every 20-30 seconds"}
+
+
+def job_status(job_id: str) -> dict:
+    """Progress and result of a create_app / change_app / deploy_app job."""
+    rec = _JOBS.get(job_id)
+    if rec is None:
+        return {"error": f"unknown job {job_id}"}
+    return {**{k: rec[k] for k in ("job_id", "kind", "status", "result", "error")}, "log": rec["log"][-15:]}
+
+
+def create_app(idea: str, parent_folder: str, max_spend_usd: float = 0.6, folder_name: str | None = None) -> dict:
+    """Nemotron writes a working web app (FastAPI + HTML/JS, AI features on Token Factory) from one sentence, with a
+    Dockerfile and tests, tests it and fixes failures. Costs about one cent; max_spend_usd caps it. Returns a job_id."""
+    parent = _root(parent_folder)
+    if not config.api_key():
+        return _no_key()
+    from .create import Creator
+    dest = parent / folder_name if folder_name else None
+
+    def fn(emit):
+        return Creator(idea, dest, budget=max_spend_usd, emit=emit, parent=parent).build()
+    return _job("create", fn)
+
+
+def change_app(path: str, change: str, max_spend_usd: float = 0.6) -> dict:
+    """A Nemotron coding agent makes a change to the app (reads, writes files inside it, runs the tests, fixes
+    failures). Nothing is committed; the user reviews with git diff. Returns a job_id."""
+    root = _root(path)
+    if not config.api_key():
+        return _no_key()
+    from .coder import code
+    return _job("change", lambda emit: code(change, root, budget=max_spend_usd, emit=emit))
+
+
+def secure_app(path: str, check_dependencies: bool = True) -> dict:
+    """Whole-app security check before shipping (free): leaked secrets anywhere, .env committed to git, vulnerable
+    dependencies (OSV), debug mode, open CORS, containers running as root, and every LLM call."""
+    from . import secure
+    res = secure.run(_root(path), deps=check_dependencies)
+    return {"blocking": len(res["blocking"]), "findings": res["findings"], "notes": res["notes"]}
+
+
+def deploy_app(path: str, user_agreed_to_billing: bool, name: str | None = None, private: bool = False) -> dict:
+    """Ship the app to Nebius: security gate, Dockerfile if missing, build, push to Nebius Container Registry, create
+    a Serverless endpoint, health-check it. The endpoint bills until deleted: only call with
+    user_agreed_to_billing=true after telling the user. Needs Docker and the nebius CLI. Returns a job_id."""
+    root = _root(path)
+    if not user_agreed_to_billing:
+        return {"error": "tell the user the endpoint bills until deleted, then call again with user_agreed_to_billing=true"}
+    from .deploy import Deployer
+    return _job("deploy", lambda emit: Deployer(root, name, private=private, emit=emit).run())
+
+
+def deployment_status(name: str | None = None) -> dict:
+    """State and URL of a deployed app (all deployed apps are listed if name is ambiguous)."""
+    from . import deploy
+    try:
+        return deploy.status(name)
+    except deploy.DeployError as e:
+        return {"error": str(e)}
+
+
+def delete_deployment(name: str) -> dict:
+    """Delete a deployed app's Nebius endpoint (it stops billing)."""
+    from . import deploy
+    try:
+        return {"deleted": deploy.delete(name)}
+    except deploy.DeployError as e:
+        return {"error": str(e)}
+
+
+TOOLS = [create_app, change_app, secure_app, scan_llm_calls, audit_llm_calls, start_migration, migration_status,
+         migration_results, apply_migration, deploy_app, deployment_status, delete_deployment, job_status]
 
 
 def build():
