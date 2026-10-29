@@ -78,6 +78,7 @@ def get_config():
     return {
         "live": bool(config.api_key()) and (not PUBLIC or bool(RUN_CODE)),
         "needs_code": PUBLIC and bool(RUN_CODE),
+        "build": not PUBLIC, "apps_dir": None if PUBLIC else str(APPS_DIR),
         "tavily": bool(config.tavily_key()),
         "tracing": bool(config.langsmith_key()),
         "models": [{"key": m.key, "id": m.id, "label": m.label, "tier": m.tier, "price_in": m.price_in, "price_out": m.price_out}
@@ -229,6 +230,99 @@ def audit_repo(req: AuditRequest):
     finally:
         _audit_slots.release()
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# -- build & ship (local only: these write files and deploy from this machine) -------------------------
+
+APPS_DIR = Path(os.environ.get("SWITCHYARD_APPS", Path.home() / "switchyard-apps"))
+
+
+class BuildRequest(BaseModel):
+    idea: str
+    budget: float = 0.6
+
+
+class PathRequest(BaseModel):
+    path: str
+    change: str | None = None
+    private: bool = False
+    agreed: bool = False
+
+
+def _local_only():
+    if PUBLIC:
+        raise HTTPException(403, "Building and deploying run on your own machine: pip install switchyard, then switchyard serve")
+
+
+def _app_path(p: str) -> Path:
+    root = Path(p).expanduser().resolve()
+    if not root.is_dir():
+        raise HTTPException(400, f"{root} is not a folder")
+    return root
+
+
+@app.post("/api/build")
+def build_app(req: BuildRequest):
+    _local_only()
+    if not config.api_key():
+        raise HTTPException(400, "No Token Factory key: run `switchyard setup` first")
+    if len(req.idea.strip()) < 8:
+        raise HTTPException(400, "Describe the app in a sentence")
+    APPS_DIR.mkdir(parents=True, exist_ok=True)
+    from . import mcp_server
+    return mcp_server.create_app(req.idea, str(APPS_DIR), max_spend_usd=max(0.05, min(req.budget, 2.0)))
+
+
+@app.post("/api/change")
+def change_app(req: PathRequest):
+    _local_only()
+    if not (req.change or "").strip():
+        raise HTTPException(400, "Say what to change")
+    from . import mcp_server
+    return mcp_server.change_app(str(_app_path(req.path)), req.change)
+
+
+@app.post("/api/secure")
+def secure_app(req: PathRequest):
+    _local_only()
+    from . import secure
+    res = secure.run(_app_path(req.path))
+    return {"blocking": len(res["blocking"]), "findings": res["findings"][:100], "notes": res["notes"]}
+
+
+@app.post("/api/deploy")
+def deploy_app(req: PathRequest):
+    _local_only()
+    from . import mcp_server
+    return mcp_server.deploy_app(str(_app_path(req.path)), req.agreed, private=req.private)
+
+
+@app.get("/api/jobs/{job_id}")
+def job(job_id: str):
+    from . import mcp_server
+    res = mcp_server.job_status(job_id)
+    if res.get("error") and not res.get("status"):
+        raise HTTPException(404, res["error"])
+    return res
+
+
+@app.get("/api/deployments")
+def deployments():
+    if PUBLIC:
+        return []
+    from . import deploy
+    return [{"name": n, "url": a.get("url"), "path": a.get("path"), "healthy": a.get("healthy"), "created": a.get("created")}
+            for n, a in deploy.load_state().get("apps", {}).items()]
+
+
+@app.delete("/api/deployments/{name}")
+def delete_deployment(name: str):
+    _local_only()
+    from . import deploy
+    try:
+        return {"deleted": deploy.delete(name)}
+    except deploy.DeployError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/health")

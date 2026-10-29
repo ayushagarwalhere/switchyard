@@ -59,6 +59,28 @@
 
 <main class="layout" id="app">
   <aside class="side">
+    <section class="card build" id="buildCard" hidden>
+      <h2>Build &amp; ship</h2>
+      <form id="buildForm">
+        <label>Describe your app <span class="muted">(Nemotron writes and tests it)</span>
+          <textarea id="idea" rows="3" placeholder="a meeting notes app that turns pasted notes into action items with owners and due dates" required></textarea>
+        </label>
+        <button id="buildBtn" class="primary" type="submit">Build app</button>
+      </form>
+      <div id="appPanel" hidden>
+        <p class="small"><b id="appTitle"></b><br><span class="muted mono" id="appPath"></span></p>
+        <div class="row2">
+          <button class="secondary" type="button" id="secureBtn">Secure</button>
+          <button class="secondary" type="button" id="deployBtn">Deploy to Nebius</button>
+        </div>
+        <form id="changeForm" class="inline-form">
+          <input id="changeText" placeholder="Ask for a change, e.g. add a dark mode toggle" autocomplete="off">
+          <button class="secondary" type="submit">Change</button>
+        </form>
+      </div>
+      <pre class="log small" id="buildLog" hidden></pre>
+      <div id="deployList"></div>
+    </section>
     <section class="card">
       <h2>New migration</h2>
       <form id="runForm">
@@ -170,6 +192,7 @@
 
 <dialog id="caseDlg"><div id="caseBody"></div><form method="dialog"><button class="btn">Close</button></form></dialog>
 <script src="/tour.js"></script>
+<script src="/build.js" defer></script>
 <script src="/app.js"></script>
 <script type="module" src="/hero.js"></script>
 </body>
