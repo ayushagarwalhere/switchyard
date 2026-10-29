@@ -105,7 +105,7 @@ npx skills add ayushagarwalhere/switchyard
 **MCP clients** (Cursor, Claude Desktop, Windsurf, VS Code): install with the MCP extra and add the server:
 
 ```bash
-pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.3.0"
+pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.3.1"
 ```
 ```json
 {"mcpServers": {"switchyard": {"command": "switchyard", "args": ["mcp"]}}}
@@ -141,7 +141,7 @@ Add a `NEBIUS_API_KEY` repository secret, copy [examples/switchyard-migrate.yml]
 The CI guard is a single step, and `switchyard apply` adds it for you:
 
 ```yaml
-- uses: ayushagarwalhere/switchyard@v0.3.0
+- uses: ayushagarwalhere/switchyard@v0.3.1
   with:
     nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
 ```
@@ -212,7 +212,7 @@ _Filled in from a recorded run by `switchyard publish <run-id>`._
 ## Limits
 
 - Python and JavaScript/TypeScript. In Python, OpenAI SDK, LiteLLM and LangChain `ChatOpenAI` calls are rewritten automatically. Plain Anthropic `messages.create()` calls are rewritten too: they go through a small shim that returns Anthropic-shaped responses from Token Factory. Async, streaming and tool-use Anthropic calls are tested and get a target model in the report, but you port them by hand.
-- JavaScript/TypeScript (Next.js, Node, Vercel AI SDK): OpenAI SDK and AI SDK (`generateText`, `streamText`, `generateObject`, `streamObject`) calls are tested and rewritten; Anthropic SDK calls are tested and listed for a hand port. JS code isn't executed, so the runtime check and the `eval`/shell data-flow rule (AU2) are Python-only; edited JS files get a syntax check (`node --check` for .js, a bracket/string balance check for .ts).
+- JavaScript/TypeScript (Next.js, Node, Vercel AI SDK): OpenAI SDK and AI SDK (`generateText`, `streamText`, `generateObject`, `streamObject`) calls are tested and rewritten; Anthropic SDK calls, calls inside `"use client"` components (the key must stay on the server) and calls on a client returned by a function (`getClient().chat...`) are tested and listed for a hand port. Migrated JS calls go through a separate `tokenFactory` client, so the app's own OpenAI client (embeddings, images) is untouched. JS code isn't executed, so the runtime check and the `eval`/shell data-flow rule (AU2) are Python-only; edited JS files get a syntax check (`node --check` for .js, a bracket/string balance check for .ts).
 - Prompts built far from the call site are tested as a single user turn (the investigation step tells the test writer what the real inputs look like).
 - Running the patched code executes the repository's definitions (imports, classes, functions; top-level demo code is skipped) in a subprocess. It's on by default locally and off on the public demo. Turn it off with `--no-exec` or `SWITCHYARD_EXEC=0`.
 - Quality is measured against reference answers written by Nemotron Ultra with reasoning on, not against the original provider's outputs. If you have recorded production outputs, those make a stronger reference.

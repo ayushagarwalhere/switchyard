@@ -150,7 +150,7 @@ function auditPage(a) {
     ${rows ? `<div class="card runtime" style="margin-bottom:14px"><h3>Findings</h3>${rows}</div>` : ""}
     ${calls ? `<div class="card" style="margin-bottom:14px"><h3>LLM calls found</h3><table class="simple"><thead><tr><th>Where</th><th>Function</th><th>SDK</th><th>Model</th><th></th></tr></thead><tbody>${calls}</tbody></table></div>` : ""}
     <div class="card"><h3>Next</h3><p class="small">Attack each prompt with injection probes on Nemotron, and test which calls can move to a cheaper model:</p>
-      <pre class="mono small apply-cmd">pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.3.0"
+      <pre class="mono small apply-cmd">pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.3.1"
 switchyard setup
 switchyard audit --probes        # in the app's folder
 switchyard run${testable.length ? `                   # ${testable.length} call${testable.length === 1 ? "" : "s"} to test` : ""}</pre></div>`;

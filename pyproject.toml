@@ -1,6 +1,6 @@
 [project]
 name = "switchyard"
-version = "0.3.0"
+version = "0.3.1"
 description = "Migrate LLM apps to NVIDIA Nemotron on Nebius Token Factory, with per-call proof of quality."
 readme = "README.md"
 license = "MIT"
