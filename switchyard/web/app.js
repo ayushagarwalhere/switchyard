@@ -226,7 +226,7 @@ function fold(state) {
     if (rec.investigation) s.investigation = rec.investigation;
     for (const [mk, e] of Object.entries(rec.evals || {})) {
       s.models[mk] = e;
-      s.results[mk] = Object.fromEntries(e.results.map((r) => [r.case, r.passed]));
+      s.results[mk] = Object.fromEntries(e.results.map((r) => [r.case, r.disputed ? "d" : r.passed]));
     }
     if (rec.cases) s.cases = rec.cases;
   }
@@ -320,7 +320,7 @@ function siteCard(s, state) {
     const cls = pr == null ? "" : pr >= (state.settings?.target ?? .85) ? "" : pr >= .5 ? "mid" : "low";
     const dots = (s.cases || []).map((c) => {
       const v = res[c.id];
-      return `<button class="dot ${v === true ? "p" : v === false ? "f" : ""}" title="${esc(c.name)}" data-site="${esc(s.id)}" data-case="${c.id}" data-m="${esc(mk)}"></button>`;
+      return `<button class="dot ${v === "d" ? "d" : v === true ? "p" : v === false ? "f" : ""}" title="${esc(c.name)}${v === "d" ? " (set aside: every model disagreed with this reference the same way)" : ""}" data-site="${esc(s.id)}" data-case="${c.id}" data-m="${esc(mk)}"></button>`;
     }).join("");
     return `<tr class="${chosen ? "chosen" : ""}" data-row="${esc(s.id)}:${esc(mk)}"><td>${chip(mk)}</td>
       <td>${m ? `<div class="pr"><div class="bar ${cls}"><i style="width:${Math.round(pr * 100)}%"></i></div><span class="small">${pct(pr)}</span></div>` : `<span class="spin"></span>`}</td>
@@ -340,7 +340,7 @@ function siteCard(s, state) {
     ${investigationBlock(s.investigation)}
     ${src}${why}${h2h}${hint}${runtimeLine(s.runtime)}${s.error ? `<div class="why keep bad">${esc(s.error)}</div>` : ""}</div>` : `<div class="desc pending"><span class="spin"></span> Reading the call site…</div>`;
   const caseList = s.cases?.length ? `<details class="cases"><summary>${s.cases.length} tests written by Ultra</summary><div class="case-list">${s.cases.map((c) =>
-    `<div class="case-row" data-site="${esc(s.id)}" data-case="${c.id}"><span class="muted">#${c.id}</span><span>${esc(c.name)} <span class="kind">${esc(c.kind === "tricky" ? "tricky" : "")}</span><br><span class="muted small">${esc(c.why || "")}</span></span><span>${rows.map((mk) => { const v = (s.results[mk] || {})[c.id]; return `<span class="dot ${v === true ? "p" : v === false ? "f" : ""}" style="display:inline-block" title="${esc(mk)}"></span>`; }).join(" ")}</span></div>`).join("")}</div></details>` : "";
+    `<div class="case-row" data-site="${esc(s.id)}" data-case="${c.id}"><span class="muted">#${c.id}</span><span>${esc(c.name)} <span class="kind">${esc(c.kind === "tricky" ? "tricky" : "")}</span><br><span class="muted small">${esc(c.why || "")}</span></span><span>${rows.map((mk) => { const v = (s.results[mk] || {})[c.id]; return `<span class="dot ${v === "d" ? "d" : v === true ? "p" : v === false ? "f" : ""}" style="display:inline-block" title="${esc(mk)}${v === "d" ? " (set aside)" : ""}"></span>`; }).join(" ")}</span></div>`).join("")}</div></details>` : "";
   return `<article class="site"><div class="site-h"><div><span class="fn">${esc(h.function || "(module)")}</span> <span class="loc muted">${loc}</span></div>${route}</div>
     <div class="site-b">${desc}<div>${table}</div></div>${caseList}</article>`;
 }

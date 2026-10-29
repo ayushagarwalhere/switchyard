@@ -167,9 +167,19 @@ def _is_num(x) -> bool:
         return False
 
 
+# Token Factory enforces a json_schema's shape but doesn't show the model the field descriptions
+# (measured: without them Super named an event "create_calendar_event" and Lightning dropped the time
+# from an ISO 8601 date). The patch adds this message to migrated .parse() calls; tests use it too.
+SCHEMA_PREFIX = "Reply with JSON matching this schema (follow each field's description):\n"
+
+
 def run_case(tf: TokenFactory, site: dict, analysis: dict, case: dict, model_key: str, hint: str = "") -> dict:
-    messages = agents.with_hint(agents.render(site["messages"], case["inputs"]), hint)
     p = site.get("params", {})
+    rendered = [m for m in agents.render(site["messages"], case["inputs"]) if not m["content"].startswith(SCHEMA_PREFIX)]
+    out_schema = (p.get("output_schema") or {}).get("schema")
+    if out_schema and not str(model_key).startswith(config.SOURCE_PREFIX):
+        rendered = [{"role": "system", "content": SCHEMA_PREFIX + json.dumps(out_schema)}] + rendered
+    messages = agents.with_hint(rendered, hint)
     temperature = p.get("temperature") if isinstance(p.get("temperature"), (int, float)) else None
     max_tokens = p.get("max_tokens") or p.get("max_completion_tokens")
     # the original API's default is the model's full output length; without a cap here, long structured

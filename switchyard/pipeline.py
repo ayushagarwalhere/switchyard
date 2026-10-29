@@ -353,6 +353,8 @@ class Run:
                 decision["vs_source"] = head_to_head(evals, decision, source_key)
             out["decision"] = decision
             out["savings"] = savings(site, evals, decision)
+            decision, out["savings"] = never_pricier(site, evals, decision, out["savings"])
+            out["decision"] = decision
             out["status"] = "done"
             self.emit("decision", id=sid, decision=decision, savings=out["savings"])
         except BudgetExceeded:
@@ -475,6 +477,19 @@ def savings(site: dict, evals: dict, decision: dict) -> dict:
             "source_cost_per_call": src_cost, "new_cost_per_call": new_cost,
             "saving_pct": round((1 - new_cost / src_cost) * 100, 1) if src_cost else 0,
             "latency_p50": e["latency_p50"]}
+
+
+def never_pricier(site: dict, evals: dict, decision: dict, sav: dict) -> tuple[dict, dict]:
+    """A switch has to save money: if the cheapest passing Nemotron model costs more than the call's
+    current model (say Ultra vs gpt-4o-mini), keep the original and say why."""
+    if decision.get("action") != "migrate" or sav.get("saving_pct", 0) >= 0 or not sav.get("source_cost_per_call"):
+        return decision, sav
+    label = config.MODELS[decision["model"]].label
+    kept = {k: v for k, v in decision.items() if k not in ("choice", "model", "hint", "repair_candidate")}
+    kept.update(action="keep", passing=decision["choice"],
+                reason=f"{label} passes ({decision['pass_rate']:.0%}) but costs more than {site.get('model')} "
+                       f"for this call ({abs(sav['saving_pct']):.0f}% more); keeping the original model")
+    return kept, savings(site, evals, kept)
 
 
 def summarize_run(sites: list[dict]) -> dict:

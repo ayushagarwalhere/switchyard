@@ -206,7 +206,40 @@ The export uses the `INPUT:` / `GOLDEN:` column style that crowd platforms accep
 ## Results
 
 <!-- results:start -->
-_Filled in from a recorded run by `switchyard publish <run-id>`._
+Recorded run `20261029-142754-6b1f` on [daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns](https://github.com/daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns):
+
+- **7 of 11** call sites switched (7 on Nemotron 3.5 Lightning); 4 kept on the original model.
+- **97.6% cheaper** per request across the switched calls (list prices).
+- **2** call site(s) only passed after Nemotron Ultra adapted the prompt.
+- The whole analysis cost **$0.50** in Token Factory credits (791 model calls, 8.1 min).
+
+| Call site | Task | Was | Now | Tests passed | Saving |
+|---|---|---|---|---|---|
+| `1-prompt-chaining.py:69` extract_event_info | extraction | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 100% | 97.6% |
+| `1-prompt-chaining.py:94` parse_event_details | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 100% | 97.6% |
+| `1-prompt-chaining.py:117` generate_confirmation | generation | `gpt-4o` | kept | – | – |
+| `2-routing.py:77` route_calendar_request | routing | `gpt-4o` | Nemotron 3.5 Lightning | 100% | 97.6% |
+| `2-routing.py:100` handle_new_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 88% | 97.6% |
+| `2-routing.py:128` handle_modify_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 88% | 97.6% |
+| `3-parallizaton.py:48` validate_calendar_request | classification | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 100% | 97.6% |
+| `3-parallizaton.py:64` check_security | classification | `gpt-4o` | Nemotron 3.5 Lightning | 100% | 97.6% |
+| `4-orchestrator.py:139` get_plan | generation | `gpt-4o-mini` | kept | – | – |
+| `4-orchestrator.py:171` write_section | generation | `gpt-4o-mini` | kept | – | – |
+| `4-orchestrator.py:201` review_post | other | `gpt-4o-mini` | kept | – | – |
+
+What Switchyard itself spent, by job:
+
+| Job | Model | Calls | Cost |
+|---|---|---|---|
+| Write tests | Nemotron 3 Ultra | 12 | $0.1460 |
+| Grade outputs | Nemotron 3 Super | 311 | $0.1249 |
+| Candidate: ultra | Nemotron 3 Ultra | 87 | $0.1046 |
+| Investigate the codebase | Nemotron 3 Super | 76 | $0.0471 |
+| Attack prompts (security probes) | Nemotron 3.5 Lightning | 66 | $0.0251 |
+| Candidate: super | Nemotron 3 Super | 87 | $0.0224 |
+| Adapt prompts | Nemotron 3 Ultra | 6 | $0.0171 |
+| Candidate: lightning | Nemotron 3.5 Lightning | 135 | $0.0112 |
+| Understand call sites | Nemotron 3 Super | 11 | $0.0064 |
 <!-- results:end -->
 
 ## Limits

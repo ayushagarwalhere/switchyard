@@ -82,7 +82,9 @@ def check(ref: str, repo: str | None = None, target: float | None = None, budget
                                 "status": "missing", "detail": "call site no longer found"})
                 continue
             hint_text = d.get("hint", "")
-            without_hint = [m for m in now["messages"] if not (hint_text and m.get("content") == hint_text)]
+            from .evaluate import SCHEMA_PREFIX
+            without_hint = [m for m in now["messages"] if not (hint_text and m.get("content") == hint_text)
+                            and not str(m.get("content", "")).startswith(SCHEMA_PREFIX)]
             changed = without_hint != site["messages"]
             site = now
         hint = d.get("hint", "")

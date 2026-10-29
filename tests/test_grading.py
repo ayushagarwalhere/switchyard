@@ -41,3 +41,37 @@ def test_dates_names_scores_and_tool_calls():
     assert ok("team sync meeting", "Team meeting", "name") and not ok("create_calendar_event", "Team meeting", "name")
     # the app reads a tool call's arguments, not the wrapper with the function's name
     assert evaluate._tool_output([{"id": "1", "name": "create_event", "arguments": '{"name": "x"}'}]) == '{"name": "x"}'
+
+
+def test_schema_descriptions_are_shown_to_nemotron_but_not_the_baseline():
+    from switchyard import config, llm
+    seen = {}
+
+    class TF:
+        usage = llm.Usage()
+
+        def complete(self, model_key, messages, **kw):
+            seen[model_key] = messages
+            return llm.Completion('{"name": "Team Meeting"}', None, 1, 1, 0.1, 0.0, model_key)
+
+        def json(self, *a, **k):
+            return {"score": 9, "pass": True, "reason": "ok"}, None
+
+    schema = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the event"}}}
+    site = {"messages": [{"role": "user", "content": "{{q}}"}], "params": {"output_schema": {"name": "E", "schema": schema}}}
+    case = {"id": 1, "inputs": {"q": "meet"}, "reference": '{"name": "Team Meeting"}', "expect": {}}
+    evaluate.run_case(TF(), site, {"output": {"format": "json"}}, case, "lightning")
+    evaluate.run_case(TF(), site, {"output": {"format": "json"}}, case, config.SOURCE_PREFIX + "gpt-4o")
+    assert seen["lightning"][0]["content"].startswith(evaluate.SCHEMA_PREFIX) and "Name of the event" in seen["lightning"][0]["content"]
+    assert not any(m["content"].startswith(evaluate.SCHEMA_PREFIX) for m in seen[config.SOURCE_PREFIX + "gpt-4o"])
+
+
+def test_never_switch_to_a_pricier_model():
+    from switchyard import pipeline
+    site = {"model": "gpt-4o-mini"}
+    ev = {"ultra": {"results": [{}] * 4, "tokens_in": 4000, "tokens_out": 4000, "latency_p50": 1.0}}
+    d = {"action": "migrate", "choice": "ultra", "model": "ultra", "pass_rate": 0.88, "hint": ""}
+    sav = pipeline.savings(site, ev, d)
+    assert sav["saving_pct"] < 0
+    kept, sav2 = pipeline.never_pricier(site, ev, d, sav)
+    assert kept["action"] == "keep" and "costs more than gpt-4o-mini" in kept["reason"] and sav2["saving_pct"] == 0

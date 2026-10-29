@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from . import config
+from .evaluate import SCHEMA_PREFIX
 
 ENV_BASE = "TOKEN_FACTORY_BASE_URL"
 ENV_KEY = "NEBIUS_API_KEY"
@@ -298,13 +299,25 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                 ed.replace(site["receiver_span"], "_token_factory_async" if site.get("awaited") else "_token_factory")
                 needs_async |= bool(site.get("awaited"))
                 needs_sync |= not site.get("awaited")
+            key = "input" if site["sdk"] == "openai-responses" else "messages"
+            prefix = []
+            # .parse(response_format=Model): put the schema's field descriptions in the prompt, because
+            # Token Factory only enforces the shape (see evaluate.SCHEMA_PREFIX)
+            if site["sdk"] in ("openai", "litellm") and (site.get("params") or {}).get("output_schema"):
+                for k in ("response_format", "response_model"):
+                    if k in site["arg_spans"]:
+                        l1, c1, l2, c2 = site["arg_spans"][k]
+                        cls = text[ed.pos(l1, c1):ed.pos(l2, c2)]
+                        if re.fullmatch(r"[A-Za-z_][\w.]*", cls):
+                            prefix.append(f'{{"role": "system", "content": {json.dumps(SCHEMA_PREFIX)} + '
+                                          f'__import__("json").dumps(getattr({cls}, "model_json_schema", getattr({cls}, "schema", dict))())}}')
+                        break
             if dec.get("hint"):
-                hint = json.dumps(dec["hint"])
-                key = "input" if site["sdk"] == "openai-responses" else "messages"
-                if key in site["arg_spans"]:
-                    l1, c1, l2, c2 = site["arg_spans"][key]
-                    orig = text[ed.pos(l1, c1):ed.pos(l2, c2)]
-                    ed.replace(site["arg_spans"][key], f'[{{"role": "system", "content": {hint}}}] + list({orig})')
+                prefix.append(f'{{"role": "system", "content": {json.dumps(dec["hint"])}}}')
+            if prefix and key in site["arg_spans"]:
+                l1, c1, l2, c2 = site["arg_spans"][key]
+                orig = text[ed.pos(l1, c1):ed.pos(l2, c2)]
+                ed.replace(site["arg_spans"][key], f'[{", ".join(prefix)}] + list({orig})')
             routes.append({"file": rel, "line": site["line"], "function": site["function"], "env": env,
                            "from": site.get("model") or site.get("model_expr"), "to": model_id,
                            "hint": dec.get("hint", ""), "pass_rate": dec["pass_rate"], "env_value": env_value})
