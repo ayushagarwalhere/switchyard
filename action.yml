@@ -1,5 +1,5 @@
 name: Switchyard
-description: Move LLM calls to NVIDIA Nemotron on Nebius Token Factory with per-call tests, or guard a migration in CI.
+description: Move LLM calls to NVIDIA Nemotron on Nebius Token Factory with per-call tests, guard a migration in CI, or review AI code in pull requests.
 author: Switchyard
 branding:
   icon: shuffle
@@ -10,7 +10,7 @@ inputs:
     description: Nebius Token Factory API key (store it as a repository secret). Not needed for a static audit.
     default: ""
   command:
-    description: "check: re-run the saved tests and fail on drift. migrate: test every LLM call and open a pull request. audit: security and reliability findings as SARIF."
+    description: "check: re-run the saved tests and fail on drift. migrate: test every LLM call and open a pull request. audit: security and reliability findings as SARIF. review: comment on a pull request with the AI calls it adds or changes, their cost at volume on Nemotron, and security findings on the changed lines (static, no key)."
     default: check
   path:
     description: Folder of the app, relative to the repository root.
@@ -31,8 +31,17 @@ inputs:
     description: "audit: also run prompt-injection / leak / exfiltration probes on Nemotron (needs the key)."
     default: "false"
   fail-on:
-    description: "audit: fail the job when a finding is at least this severe (critical, high, medium, low, never)."
+    description: "audit, review: fail the job when a finding is at least this severe (critical, high, medium, low, never)."
     default: high
+  base:
+    description: "review: commit or branch to compare against (default: the pull request's base commit). Check out with fetch-depth: 0."
+    default: ""
+  volume:
+    description: "review: calls per month per call site, for the cost estimate."
+    default: "100000"
+  comment:
+    description: "review: post the review as one pull request comment, updated in place on each push (needs pull-requests: write)."
+    default: "true"
   python-version:
     description: Python used to run Switchyard.
     default: "3.12"
@@ -44,6 +53,9 @@ outputs:
   sarif-file:
     description: "audit: path of the SARIF report (upload it with github/codeql-action/upload-sarif)."
     value: ${{ steps.audit.outputs.sarif-file }}
+  review-file:
+    description: "review: path of the Markdown review (the PR comment)."
+    value: ${{ steps.review.outputs.review-file }}
 
 runs:
   using: composite
@@ -106,5 +118,48 @@ runs:
         switchyard audit "$APP_PATH" $probes --budget "$BUDGET" --format sarif --out "$out" --fail-on "$FAIL_ON" || status=$?
         if [ ! -s "$out" ]; then
           echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Switchyard audit","rules":[]}},"results":[]}]}' > "$out"
+        fi
+        exit $status
+
+    - name: Review the pull request's AI code
+      id: review
+      if: inputs.command == 'review'
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: "1"
+        GH_TOKEN: ${{ github.token }}
+        APP_PATH: ${{ inputs.path }}
+        BASE: ${{ inputs.base || github.event.pull_request.base.sha }}
+        VOLUME: ${{ inputs.volume }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        COMMENT: ${{ inputs.comment }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        # fully static: no Token Factory key; the only network call is OSV for dependencies the PR changes
+        out="$RUNNER_TEMP/switchyard-review.md"
+        echo "review-file=$out" >> "$GITHUB_OUTPUT"
+        base=""
+        if [ -n "$BASE" ]; then
+          # a shallow checkout may not have the base commit: fetch it (full history needs fetch-depth: 0)
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$BASE" || true
+          base="--base $BASE"
+        fi
+        status=0
+        python -m switchyard.prreview "$APP_PATH" $base --volume "$VOLUME" --fail-on "$FAIL_ON" --out "$out" || status=$?
+        [ -s "$out" ] || exit $status
+        cat "$out" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$COMMENT" = "true" ] && [ -n "$PR_NUMBER" ]; then
+          # one comment per PR: find ours by its hidden marker and update it, else create it
+          find='.[] | select(.user.type == "Bot" and (.body | contains("<!-- switchyard-pr-review -->"))) | .id'
+          id=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" --jq "$find" | head -n 1 || true)
+          if [ -n "$id" ]; then
+            where="repos/$REPO/issues/comments/$id"; method=PATCH
+          else
+            where="repos/$REPO/issues/$PR_NUMBER/comments"; method=POST
+          fi
+          # fork PRs get a read-only token: the review is still in the job summary
+          gh api --method "$method" "$where" -F "body=@$out" > /dev/null ||
+            echo "::warning::could not post the review comment (read-only token on a fork PR?); it is in the job summary"
         fi
         exit $status

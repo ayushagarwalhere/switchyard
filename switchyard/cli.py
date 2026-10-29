@@ -8,6 +8,7 @@ Build and ship (vibe coding on Nebius + NVIDIA):
   switchyard new "<idea>"                  Nemotron writes a working, tested, deployable app
   switchyard code "<change>" [path]        Nemotron edits your app, runs the tests, fixes failures
   switchyard secure [path]                 secrets, vulnerable deps, risky config, every LLM call
+  switchyard pr-review [path] [--base ref] review a PR's AI code: cost at volume, Nemotron fit, security on changed lines
   switchyard deploy [path]                 container -> Nebius Container Registry -> Nebius Serverless endpoint
   switchyard deploy status|logs|delete     manage what you deployed (endpoints bill until deleted)
   switchyard deploy logs --explain         Nemotron reads the logs and says why the app is failing
@@ -144,6 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--force", action="store_true", help="deploy even with blocking security findings")
     dp.add_argument("--local", action="store_true",
                     help="run the same image, env and health check in local Docker instead of Nebius (free)")
+
+    prr = sub.add_parser("pr-review", help="review a pull request's AI code (static, free): cost, Nemotron fit, security",
+                         add_help=False)
+    prr.add_argument("rest", nargs=argparse.REMAINDER,
+                     help="[repo] --base REF --head REF --volume N --out FILE --json --no-deps --fail-on high")
 
     ro = sub.add_parser("router", help="live model router: each AI feature -> its tested Nemotron model, with fallback and metering")
     ro.add_argument("--port", type=int, default=8787)
@@ -317,6 +323,10 @@ def _dispatch(args) -> int:
 
     if args.cmd == "router":
         return _router(args)
+
+    if args.cmd == "pr-review":
+        from . import prreview
+        return prreview.main(args.rest)
 
     if args.cmd == "oncall":
         from . import oncall

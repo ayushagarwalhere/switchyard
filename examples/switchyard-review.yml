@@ -1,0 +1,29 @@
+# AI code review on every pull request, as one comment that updates on each push:
+#   - the LLM calls the PR adds, changes or removes (Python and JS/TS), with file:line, model and what each does
+#   - what each would cost at volume on its current model vs NVIDIA Nemotron on Nebius Token Factory (estimates)
+#   - which Nemotron tier is worth testing with `switchyard run` (or the tested result, if a run covered the call)
+#   - security findings on the changed lines: hard-coded keys, model output reaching eval/shell/SQL,
+#     risky config, Dockerfiles, and dependencies the PR adds (checked against OSV), each with its fix
+# Fully static: no Token Factory key needed, no code from the PR is run.
+# Copy to .github/workflows/switchyard-review.yml.
+name: switchyard-review
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write     # post and update the review comment
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0     # the review diffs against the PR's base commit, so it needs the history
+      - uses: ayushagarwalhere/switchyard@v0.4.0
+        with:
+          command: review
+          path: "."          # folder of the app, if it isn't the repo root
+          volume: "100000"   # calls per month per call site, for the cost estimate
+          fail-on: high      # fail the check on a critical/high finding in the changed lines (never: just comment)
