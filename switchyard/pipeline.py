@@ -92,6 +92,9 @@ class Run:
         self.target = target
         self.budget = budget
         self.use_tavily = use_tavily
+        self.tavily_used = 0      # web searches this run (cached answers don't count)
+        self._tavily_lock = threading.Lock()
+        self._tavily_warned = False
         self.max_sites = max_sites
         self.include = include or []
         self.exclude = exclude or []
@@ -232,6 +235,8 @@ class Run:
         finally:
             if tf is not None:
                 self.state["usage"] = tf.usage.to_dict()
+                if getattr(tf, "traced", None) is not None:
+                    self.state["langsmith_traces"] = tf.traces_sent
                 if getattr(tf, "baseline_usage", None) and tf.baseline_usage.calls:
                     self.state["baseline_usage"] = tf.baseline_usage.to_dict()
                 if tf.fallbacks:
@@ -267,6 +272,16 @@ class Run:
             return False
         return not any(fnmatch.fnmatch(rel, g) for g in self.exclude)
 
+    def _tavily_slot(self, query: str) -> bool:
+        """Cached queries are free; new ones count against the per-run cap (sites run in parallel)."""
+        if _tavily_cache(query).exists():
+            return True
+        with self._tavily_lock:
+            if self.tavily_used >= config.TAVILY_MAX_PER_RUN:
+                return False
+            self.tavily_used += 1
+            return True
+
     def process_site(self, tf: TokenFactory, site: dict, prod: list | None = None) -> dict:
         sid = site["id"]
         out: dict = {"site": site, "status": "running"}
@@ -284,8 +299,12 @@ class Run:
 
             sources = []
             query = (analysis.get("realistic_input_search") or "").strip()
-            if self.use_tavily and query and config.tavily_key():
-                sources = tavily_sources(query)
+            if self.use_tavily and query and config.tavily_key() and self._tavily_slot(query):
+                errors: list[str] = []
+                sources = tavily_sources(query, errors)
+                if errors and not self._tavily_warned:
+                    self._tavily_warned = True     # say it once, not once per call site
+                    self.emit("step", step="tavily", message=f"Tavily search failed ({errors[0]}); tests use generated inputs only")
                 out["sources"] = [{"title": s.get("title"), "url": s.get("url")} for s in sources]
                 self.emit("sources", id=sid, query=query, sources=out["sources"])
 
@@ -507,22 +526,46 @@ def summarize_run(sites: list[dict]) -> dict:
             "saving_pct": round((1 - new / src) * 100, 1) if src else 0}
 
 
-def tavily_sources(query: str) -> list[dict]:
+def _tavily_cache(query: str) -> Path:
+    import hashlib
+    h = hashlib.sha256(" ".join(query.lower().split()).encode()).hexdigest()[:24]
+    return config.HOME / "cache" / "tavily" / f"{h}.json"
+
+
+def tavily_sources(query: str, errors: list | None = None) -> list[dict]:
+    """Real-world inputs for a call's test set. Answers are cached on disk, so re-runs don't spend quota."""
+    cache = _tavily_cache(query)
     try:
-        from tavily import TavilyClient
-        res = TavilyClient(api_key=config.tavily_key()).search(query, max_results=5, search_depth="basic")
-        return [{"title": r.get("title"), "url": r.get("url"), "content": r.get("content")} for r in res.get("results", [])]
-    except Exception:  # noqa: BLE001 - realistic inputs are a bonus, never a blocker
-        return []
+        return json.loads(cache.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        try:
+            from tavily import TavilyClient
+            res = TavilyClient(api_key=config.tavily_key()).search(query, max_results=5, search_depth="basic")
+            out = [{"title": r.get("title"), "url": r.get("url"), "content": r.get("content")}
+                   for r in res.get("results", [])]
+            if out:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(json.dumps(out), encoding="utf-8")
+        except ImportError:
+            out = []
+            if errors is not None:
+                errors.append("the tavily-python package isn't installed: pip install tavily-python")
+        except Exception as e:  # noqa: BLE001 - realistic inputs are a bonus, never a blocker
+            out = []
+            if errors is not None:
+                errors.append(f"{type(e).__name__}: {str(e)[:160].replace(config.tavily_key() or '<none>', '<key>')}")
+    return out
 
 
 def _tracer():
-    """Wrap the OpenAI client with LangSmith tracing when LANGSMITH_API_KEY is set."""
+    """Wrap the OpenAI client with LangSmith tracing when a LangSmith key is set (see config.TRACE)."""
     import os
-    if not (os.environ.get("LANGSMITH_API_KEY") or os.environ.get("LANGCHAIN_API_KEY")):
+    key = config.langsmith_key()
+    if not key:
         return None
     try:
         from langsmith.wrappers import wrap_openai
+        os.environ.setdefault("LANGSMITH_API_KEY", key)       # the SDK reads this name
         os.environ.setdefault("LANGSMITH_TRACING", "true")
         return wrap_openai
     except ImportError:

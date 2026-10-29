@@ -177,5 +177,26 @@ def api_key() -> str | None:
     return key
 
 
+TAVILY_NAMES = ("TAVILY_API_KEY", "TAVLY_API_KEY", "TAVILY_KEY")
+
+
 def tavily_key() -> str | None:
-    return os.environ.get("TAVILY_API_KEY")
+    return next((os.environ[k] for k in TAVILY_NAMES if os.environ.get(k)), None)
+
+
+# LangSmith tracing (when LANGSMITH_API_KEY / LANGCHAIN_API_KEY is set): "agents" (default) traces only the
+# agent steps, "all" every model call (~800 traces per run), "0" nothing
+TRACE = os.environ.get("SWITCHYARD_TRACE", "agents").strip().lower()
+TRACED_ROLES = {"investigate", "analyze", "testgen", "repair", "harness"}
+# LangSmith plans have a monthly trace quota: never send more than this many traces in one run
+TRACE_MAX_PER_RUN = int(os.environ.get("SWITCHYARD_TRACE_MAX", "150"))
+
+
+def langsmith_key() -> str | None:
+    if TRACE in ("0", "off", "none", "false"):
+        return None
+    return os.environ.get("LANGSMITH_API_KEY") or os.environ.get("LANGCHAIN_API_KEY")
+
+
+# Free Tavily plans have a monthly request quota: at most this many searches per run (0 turns Tavily off)
+TAVILY_MAX_PER_RUN = int(os.environ.get("SWITCHYARD_TAVILY_MAX", "12"))

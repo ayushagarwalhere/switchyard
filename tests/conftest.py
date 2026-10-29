@@ -8,7 +8,7 @@ import pytest
 
 from switchyard import config
 
-KEY_VARS = (*config.KEY_NAMES, "OPENAI_API_KEY", "TAVILY_API_KEY", "LANGSMITH_API_KEY", "ANTHROPIC_API_KEY")
+KEY_VARS = (*config.KEY_NAMES, *config.TAVILY_NAMES, "OPENAI_API_KEY", "LANGSMITH_API_KEY", "LANGCHAIN_API_KEY", "ANTHROPIC_API_KEY")
 
 
 @pytest.fixture(autouse=True)

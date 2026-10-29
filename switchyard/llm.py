@@ -65,8 +65,10 @@ class TokenFactory:
         if not key:
             raise RuntimeError("Set NEBIUS_API_KEY in .env (get one at tokenfactory.nebius.com)")
         self.client = OpenAI(base_url=config.DEFAULT_BASE_URL, api_key=key, max_retries=3, timeout=180)
-        if tracer is not None:
-            self.client = tracer(self.client)
+        # LangSmith: by default only the agent steps are traced (~5 per call site), not the hundreds of
+        # test and grading calls; SWITCHYARD_TRACE=all traces everything
+        self.traced = tracer(OpenAI(base_url=config.DEFAULT_BASE_URL, api_key=key, max_retries=3, timeout=180)) if tracer else None
+        self.traces_sent = 0
         self.usage = Usage()
         self.budget = budget_usd
         self._lock = threading.Lock()
@@ -88,6 +90,11 @@ class TokenFactory:
         if source and self.baseline is None:
             return Completion("", None, 0, 0, 0.0, 0.0, model_key, error="no OPENAI_API_KEY for the baseline")
         client = self.baseline if source else self.client
+        if not source and self.traced is not None and (config.TRACE == "all" or role in config.TRACED_ROLES):
+            with self._lock:
+                if self.traces_sent < config.TRACE_MAX_PER_RUN:
+                    self.traces_sent += 1
+                    client = self.traced
         usage = self.baseline_usage if source else self.usage
         if source:
             reasoning = None  # Nemotron's thinking switch means nothing to the original provider

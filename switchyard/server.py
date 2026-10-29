@@ -54,7 +54,7 @@ def get_config():
         "live": bool(config.api_key()) and (not PUBLIC or bool(RUN_CODE)),
         "needs_code": PUBLIC and bool(RUN_CODE),
         "tavily": bool(config.tavily_key()),
-        "tracing": bool(os.environ.get("LANGSMITH_API_KEY")),
+        "tracing": bool(config.langsmith_key()),
         "models": [{"key": m.key, "id": m.id, "label": m.label, "tier": m.tier, "price_in": m.price_in, "price_out": m.price_out}
                    for m in config.CANDIDATES],
         "roles": {"analyze": config.ROLE_ANALYZE, "testgen": config.ROLE_TESTGEN, "judge": config.ROLE_JUDGE, "repair": config.ROLE_REPAIR},

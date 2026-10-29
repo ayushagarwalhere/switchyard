@@ -87,7 +87,7 @@ Answer yes and you get a `switchyard/nemotron-<run>` branch with the patch, `.en
 | See what a run did | `switchyard show` |
 | Browse runs in the web app | `switchyard serve` |
 
-Keys can also come from your project's `.env` or the environment (`NEBIUS_API_KEY`; optional `TAVILY_API_KEY`, `OPENAI_API_KEY`). A project's `.env` wins over the saved key. If `OPENAI_API_KEY` is set, the app's current model answers the same tests as a baseline; turn that off with `SWITCHYARD_BASELINE=0`.
+Keys can also come from your project's `.env` or the environment (`NEBIUS_API_KEY`; optional `TAVILY_API_KEY`, `OPENAI_API_KEY`). A project's `.env` wins over the saved key. If `OPENAI_API_KEY` is set, the app's current model answers the same tests as a baseline; turn that off with `SWITCHYARD_BASELINE=0`. Tavily makes one search per call site, at most 12 per run (`SWITCHYARD_TAVILY_MAX`), and caches results in `~/.switchyard/cache`, so re-running the same repo costs no Tavily requests. With `LANGSMITH_API_KEY` (or `LANGCHAIN_API_KEY`) set, LangSmith traces the agent steps (investigate, analyze, write tests, repair), at most 150 traces per run; the hundreds of test and grading calls are not traced unless `SWITCHYARD_TRACE=all`.
 
 ### In your coding agent (Claude Code, Codex, Cursor, ...)
 
