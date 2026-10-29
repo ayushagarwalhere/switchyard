@@ -4,6 +4,11 @@ Quick start (inside your app's folder):
   switchyard setup                         paste your Token Factory key once
   switchyard run                           test every LLM call on Nemotron, then apply or open a PR
 
+Build and ship (vibe coding on Nebius + NVIDIA):
+  switchyard new "<idea>"                  Nemotron writes a working, tested, deployable app
+  switchyard secure [path]                 secrets, vulnerable deps, risky config, every LLM call
+  switchyard deploy [path]                 container -> Nebius Container Registry -> Nebius Serverless endpoint
+
 All commands:
   switchyard scan   [path]                 list LLM call sites (no API calls, no key needed)
   switchyard run    [path | git url]       test every call site on Nemotron and write a patch
@@ -12,6 +17,7 @@ All commands:
   switchyard check  [run] --repo .         CI guard: re-run saved tests, fail on drift
   switchyard show   [run]                  what a run switched, kept, spent and verified
   switchyard audit  [path] [--probes]      security/reliability findings per LLM call (SARIF for GitHub)
+  switchyard secure [path]                 whole-app check before shipping: LLM calls, secrets, vulnerable deps, config
   switchyard mcp                           MCP server for Cursor, Claude Desktop and other agents
   switchyard ci     [path]                 add GitHub workflows (audit on PRs; check after a migration)
   switchyard demo   [folder] [--js]        create a sample LLM app to try all of this on
@@ -108,6 +114,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="exit 1 when a finding is at least this severe (default high)")
     au.add_argument("--budget", type=float, default=0.5)
     au.add_argument("-y", "--yes", action="store_true", help="don't ask before running probes")
+
+    nw = sub.add_parser("new", help="Nemotron writes a working, tested, deployable app from one sentence")
+    nw.add_argument("idea", nargs="+", help='what the app should do, e.g. "a habit tracker that suggests tiny next steps"')
+    nw.add_argument("--dir", help="folder to create (default: a slug of the app name)")
+    nw.add_argument("--budget", type=float, default=0.6, help="max Token Factory spend in USD (default 0.6)")
+
+    se = sub.add_parser("secure", help="whole-app security check before shipping (secrets, vulnerable deps, config, LLM calls)")
+    se.add_argument("repo", nargs="?", default=".")
+    se.add_argument("--format", choices=["text", "md", "json", "sarif"], default="text")
+    se.add_argument("--out", help="write the report to this file")
+    se.add_argument("--no-deps", action="store_true", help="skip the vulnerable-dependency lookup (OSV, needs internet)")
+    se.add_argument("--fail-on", choices=["critical", "high", "medium", "low", "never"], default="high")
 
     ci = sub.add_parser("ci", help="add GitHub workflows: audit on every PR (+ the check guard after a migration)")
     ci.add_argument("path", nargs="?", default=".")
@@ -246,6 +264,12 @@ def _dispatch(args) -> int:
 
     if args.cmd == "audit":
         return _audit(args)
+
+    if args.cmd == "secure":
+        return _secure(args)
+
+    if args.cmd == "new":
+        return _new(args)
 
     if args.cmd == "ci":
         from .gitops import add_ci
@@ -640,3 +664,51 @@ def _print_summary(state: dict) -> None:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def _secure(args) -> int:
+    from pathlib import Path
+
+    from . import audit, secure
+    res = secure.run(args.repo, deps=not args.no_deps)
+    fs = res["findings"]
+    out = {"text": lambda: audit.text(fs), "md": lambda: audit.markdown(fs).replace("Switchyard audit", "Switchyard secure"),
+           "json": lambda: json.dumps(res, indent=1), "sarif": lambda: secure.sarif(fs)}[args.format]()
+    if args.out:
+        Path(args.out).write_text(out + "\n", encoding="utf-8")
+        print(f"wrote {args.out}")
+    else:
+        print(out)
+    for n in res["notes"]:
+        print(f"note: {n}", file=sys.stderr)
+    counts = {s: sum(1 for f in fs if f["severity"] == s) for s in audit.SEVERITY_ORDER}
+    print(("Secure: " + ", ".join(f"{n} {s.lower()}" for s, n in counts.items() if n)) if fs else "Secure: no findings.",
+          file=sys.stderr)
+    if args.fail_on == "never":
+        return 0
+    bar = audit.SEVERITY_ORDER[: audit.SEVERITY_ORDER.index(args.fail_on.upper()) + 1]
+    return 1 if any(f["severity"] in bar for f in fs) else 0
+
+
+def _new(args) -> int:
+    if not config.api_key():
+        print("No Token Factory key yet: run `switchyard setup` first (tokenfactory.nebius.com).", file=sys.stderr)
+        return 2
+    from .create import Creator
+    try:
+        res = Creator(" ".join(args.idea), args.dir, budget=args.budget).build()
+    except FileExistsError as e:
+        print(e, file=sys.stderr)
+        return 2
+    plan, dest = res["plan"], res["dest"]
+    print(f"\n{plan.get('title', plan['name'])} is ready in {dest}")
+    for f in plan.get("features", [])[:6]:
+        print(f"  - {f}")
+    sec = res["secure"]
+    print(f"Tests: {'pass' if res['tests_ok'] else 'FAIL'} · security: {sec['findings']} finding(s), {sec['blocking']} blocking"
+          f" · Token Factory spend ${res['usage']['cost']:.3f}")
+    if not res["tests_ok"]:
+        print(res["test_log"][-1500:])
+    print(f"\nNext:\n  cd {dest}\n  pip install -r requirements.txt && uvicorn app.main:app --reload\n"
+          f"  switchyard secure && switchyard deploy")
+    return 0 if res["tests_ok"] else 1
