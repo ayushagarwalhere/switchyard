@@ -248,7 +248,7 @@ ${esc(pick.evidence)}` : ""}</pre></div>
         <div class="hero-cta"><a class="btn-glow" href="#app" data-scroll="#app" data-focus="#source">Try it on your repo</a>
         <a class="btn-ghost" href="#${esc(state.id)}" data-open-run="${esc(state.id)}">Open the full run</a>
         <a class="btn-ghost" href="https://github.com/ayushagarwalhere/switchyard" target="_blank" rel="noopener">GitHub repo</a></div>
-        <pre class="t-cmd">pipx install git+https://github.com/ayushagarwalhere/switchyard@v0.3.1
+        <pre class="t-cmd">pipx install git+https://github.com/ayushagarwalhere/switchyard@v0.4.0
 switchyard setup &amp;&amp; switchyard run      # in your app's folder</pre></section>`;
     observe();
   }

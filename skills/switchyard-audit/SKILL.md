@@ -22,7 +22,7 @@ instructions on NVIDIA Nemotron (a few cents) and verify a fix.
 switchyard --version
 ```
 
-If missing, ask the user first, then: `pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.3.1"`.
+If missing, ask the user first, then: `pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"`.
 
 ## 2. Static audit (free)
 

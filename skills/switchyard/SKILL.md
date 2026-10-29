@@ -29,10 +29,10 @@ switchyard --version
 If the command is missing, ask the user before installing anything, then install the pinned release:
 
 ```bash
-pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.3.1"
+pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"
 ```
 
-(`uv tool install "git+https://github.com/ayushagarwalhere/switchyard@v0.3.1"` works too.)
+(`uv tool install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"` works too.)
 
 ## 2. Free look: what would be tested, and what it costs
 

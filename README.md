@@ -2,7 +2,15 @@
 
 [![ci](https://github.com/ayushagarwalhere/switchyard/actions/workflows/ci.yml/badge.svg)](https://github.com/ayushagarwalhere/switchyard/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
-**Move every LLM call in your app to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, with tests that prove each switch.**
+**Build, secure, optimize and ship AI apps on NVIDIA Nemotron and Nebius, from one sentence to a live URL.** At its core, Switchyard moves every LLM call in your app to NVIDIA Nemotron on Nebius Token Factory, one call site at a time, with tests that prove each switch.
+
+```bash
+switchyard new "a meeting notes app that turns notes into action items"   # Nemotron writes and tests the app
+switchyard code "add a delete button for past meetings"                      # Nemotron changes it, runs the tests
+switchyard secure                                                            # secrets, vulnerable deps, risky config, LLM calls
+switchyard run                                                               # each AI call -> cheapest Nemotron model that passes
+switchyard deploy                                                            # container -> Nebius Container Registry -> Serverless endpoint
+```
 
 ![Switchyard: a recorded migration of ai-cookbook, with the tests and bake-off behind each switch](docs/img/run.jpg)
 
@@ -32,6 +40,23 @@ Switchyard answers that per call site. Point it at a repository and it:
 **Use it the way you work:** a CLI (`switchyard run` in your app's folder), your coding agent (agent skills for Claude Code/Codex/Cursor, or the MCP server), GitHub Actions (migrate-and-open-a-PR, a nightly check, an audit in the Security tab), Python (`switchyard.migrate(".")`), or the web app, which includes a free audit of any public GitHub repo. New to it? `switchyard demo` creates a sample app to try everything on.
 
 > Results from a recorded run are in [Results](#results).
+
+## Build and ship (for vibe coders)
+
+Every step runs on NVIDIA Nemotron through Nebius Token Factory, and the app ends up on Nebius AI Cloud.
+
+| Step | Command | What happens |
+|---|---|---|
+| **Write** | `switchyard new "<idea>"` | Nemotron Super plans the app (features, API, AI features), writes a FastAPI backend and an HTML/JS frontend, and Switchyard adds the parts that must be right every time: a non-root Dockerfile, pinned requirements, a Token Factory client with timeouts, smoke tests, `.gitignore`. It runs the tests and fixes failures from the output, then commits the first version. About one cent. |
+| **Change** | `switchyard code "<change>"` | A Nemotron coding agent reads and searches the app, writes files (inside the app only, never `.env`), runs the tests and fixes failures. Nothing is committed: review with `git diff`. |
+| **Secure** | `switchyard secure` | Secrets anywhere in the repo, `.env` committed to git, dependencies with published vulnerabilities (OSV), debug mode, CORS open to every site, containers running as root or on unpinned images, and the full LLM-call audit. SARIF for GitHub code scanning. Free. |
+| **Optimize** | `switchyard run` | The migration below: each AI feature moves to the cheapest Nemotron model that passes its tests. Apps from `switchyard new` give every AI feature its own call and its own `LLM_MODEL_<NAME>` override, so this works on them directly. |
+| **Deploy** | `switchyard deploy` | Runs `secure` (blocking findings stop it), writes a Dockerfile if the app has none (FastAPI, Flask, Node, Next.js or static), builds for linux/amd64, pushes to Nebius Container Registry, creates a Nebius Serverless endpoint with the app's Token Factory key and model overrides, waits for the URL and health-checks it. Redeploying replaces the old endpoint once the new one is healthy. |
+| **Run** | `switchyard deploy status / logs / delete` | State and URL, container logs, and delete (endpoints bill until deleted). `switchyard check` re-runs the saved tests in CI so a prompt change can't silently break a switched call. |
+
+The same steps are in the web app (**Build & ship** panel: type an idea, then Secure, Change, Deploy), the MCP server (`create_app`, `change_app`, `secure_app`, `deploy_app`, `deployment_status`, `delete_deployment`), and the agent skills (`switchyard-build`, `switchyard-ship`).
+
+Deploying needs Docker and the [Nebius CLI](https://docs.nebius.com/cli/install) logged in (`nebius profile create`). The CLI runs on Linux and macOS; on Windows, Switchyard calls it inside WSL.
 
 ## How Switchyard uses NVIDIA Nemotron and Nebius Token Factory
 
@@ -116,7 +141,7 @@ npx skills add ayushagarwalhere/switchyard
 **MCP clients** (Cursor, Claude Desktop, Windsurf, VS Code): install with the MCP extra and add the server:
 
 ```bash
-pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.3.1"
+pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"
 ```
 ```json
 {"mcpServers": {"switchyard": {"command": "switchyard", "args": ["mcp"]}}}
@@ -152,7 +177,7 @@ Add a `NEBIUS_API_KEY` repository secret, copy [examples/switchyard-migrate.yml]
 The CI guard is a single step, and `switchyard apply` adds it for you:
 
 ```yaml
-- uses: ayushagarwalhere/switchyard@v0.3.1
+- uses: ayushagarwalhere/switchyard@v0.4.0
   with:
     nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
 ```
@@ -277,6 +302,10 @@ switchyard/
   web/            the web app (vanilla JS + Three.js hero)
   onboard.py      `switchyard setup`: check and save keys
   audit.py        static rules + garak-style probes, SARIF output
+  create.py       `switchyard new`: plan, scaffold, write, test, fix
+  coder.py        `switchyard code`: tool-using Nemotron coding agent
+  secure.py       whole-app checks: secrets, OSV dependencies, config, Dockerfile
+  deploy.py       Dockerfile, Nebius Container Registry, Serverless endpoints
   mcp_server.py   the same flows as MCP tools
   gitops.py       apply / pr: branch, patch, CI workflow, pull request
 action.yml        GitHub Action (check / migrate / audit)

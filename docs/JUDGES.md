@@ -71,7 +71,7 @@ Partly, and Switchyard is built to limit how much that matters:
 ## Run it yourself (about 3 minutes, under $1 of credits)
 
 ```bash
-pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.3.1"
+pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"
 switchyard setup                     # paste a Token Factory key; it's checked and saved
 git clone --depth 1 https://github.com/daveebbelaar/ai-cookbook && cd ai-cookbook/patterns/workflows/2-workflow-patterns
 switchyard audit                     # free: security findings for every LLM call
