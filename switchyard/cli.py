@@ -6,6 +6,7 @@ Quick start (inside your app's folder):
 
 Build and ship (vibe coding on Nebius + NVIDIA):
   switchyard new "<idea>"                  Nemotron writes a working, tested, deployable app
+  switchyard code "<change>" [path]        Nemotron edits your app, runs the tests, fixes failures
   switchyard secure [path]                 secrets, vulnerable deps, risky config, every LLM call
   switchyard deploy [path]                 container -> Nebius Container Registry -> Nebius Serverless endpoint
   switchyard deploy status|logs|delete     manage what you deployed (endpoints bill until deleted)
@@ -120,6 +121,12 @@ def build_parser() -> argparse.ArgumentParser:
     nw.add_argument("idea", nargs="+", help='what the app should do, e.g. "a habit tracker that suggests tiny next steps"')
     nw.add_argument("--dir", help="folder to create (default: a slug of the app name)")
     nw.add_argument("--budget", type=float, default=0.6, help="max Token Factory spend in USD (default 0.6)")
+
+    cd = sub.add_parser("code", help="a Nemotron coding agent makes a change to your app and runs the tests")
+    cd.add_argument("task", help='the change, e.g. "add a dark mode toggle"')
+    cd.add_argument("path", nargs="?", default=".")
+    cd.add_argument("--steps", type=int, default=24)
+    cd.add_argument("--budget", type=float, default=0.6)
 
     dp = sub.add_parser("deploy", help="ship the app to Nebius: secure check, container, registry, Serverless endpoint")
     dp.add_argument("target", nargs="?", default=".", help="app folder (default .), or: status | logs | delete")
@@ -283,6 +290,9 @@ def _dispatch(args) -> int:
 
     if args.cmd == "deploy":
         return _deploy(args)
+
+    if args.cmd == "code":
+        return _code(args)
 
     if args.cmd == "ci":
         from .gitops import add_ci
@@ -747,3 +757,22 @@ def _deploy(args) -> int:
     print(f"Live: {res['url']}  ({'healthy' if res['healthy'] else 'not answering yet'})")
     print(f"Endpoint {res['endpoint']} bills until deleted: `switchyard deploy delete {res['name']}`")
     return 0 if res["healthy"] else 1
+
+
+def _code(args) -> int:
+    if not config.api_key():
+        print("No Token Factory key yet: run `switchyard setup` first.", file=sys.stderr)
+        return 2
+    from .coder import code
+    print(f"Nemotron Super is working on: {args.task}")
+    res = code(args.task, args.path, max_steps=args.steps, budget=args.budget)
+    print("")
+    print(res["summary"])
+    if res["diff_stat"]:
+        print(res["diff_stat"])
+    print(f"Tests: {'pass' if res['tests_ok'] else 'FAIL'} - blocking security findings: {res['blocking']}"
+          f" - {res['steps']} steps - Token Factory spend ${res['usage']['cost']:.3f}")
+    if not res["tests_ok"]:
+        print(res["test_log"])
+    print("Review with `git diff`; nothing was committed.")
+    return 0 if res["tests_ok"] else 1
