@@ -193,14 +193,14 @@ def scan_config(root: Path) -> list[dict]:
     return out
 
 
-def run(path: str | Path = ".", deps: bool = True, query=osv_query) -> dict:
+def run(path: str | Path = ".", deps: bool = True, query=None) -> dict:
     root = Path(path).resolve()
     tracked = _tracked(root)
     llm = audit.static(root)
     found = scan_secrets(root, tracked) + scan_config(root)
     notes = []
     if deps:
-        dep_findings, note = scan_deps(root, query)
+        dep_findings, note = scan_deps(root, query or osv_query)
         found += dep_findings
         if note:
             notes.append(note)

@@ -8,6 +8,7 @@ Build and ship (vibe coding on Nebius + NVIDIA):
   switchyard new "<idea>"                  Nemotron writes a working, tested, deployable app
   switchyard secure [path]                 secrets, vulnerable deps, risky config, every LLM call
   switchyard deploy [path]                 container -> Nebius Container Registry -> Nebius Serverless endpoint
+  switchyard deploy status|logs|delete     manage what you deployed (endpoints bill until deleted)
 
 All commands:
   switchyard scan   [path]                 list LLM call sites (no API calls, no key needed)
@@ -119,6 +120,15 @@ def build_parser() -> argparse.ArgumentParser:
     nw.add_argument("idea", nargs="+", help='what the app should do, e.g. "a habit tracker that suggests tiny next steps"')
     nw.add_argument("--dir", help="folder to create (default: a slug of the app name)")
     nw.add_argument("--budget", type=float, default=0.6, help="max Token Factory spend in USD (default 0.6)")
+
+    dp = sub.add_parser("deploy", help="ship the app to Nebius: secure check, container, registry, Serverless endpoint")
+    dp.add_argument("target", nargs="?", default=".", help="app folder (default .), or: status | logs | delete")
+    dp.add_argument("app", nargs="?", help="with status/logs/delete: which deployed app")
+    dp.add_argument("--name", help="app name on Nebius (default: the folder name)")
+    dp.add_argument("--platform", default=None, help="Nebius platform (default cpu-d3)")
+    dp.add_argument("--preset", default=None, help="vCPU/RAM preset for the platform (default 4vcpu-16gb)")
+    dp.add_argument("--private", action="store_true", help="require a bearer token (default: public web app)")
+    dp.add_argument("--force", action="store_true", help="deploy even with blocking security findings")
 
     se = sub.add_parser("secure", help="whole-app security check before shipping (secrets, vulnerable deps, config, LLM calls)")
     se.add_argument("repo", nargs="?", default=".")
@@ -270,6 +280,9 @@ def _dispatch(args) -> int:
 
     if args.cmd == "new":
         return _new(args)
+
+    if args.cmd == "deploy":
+        return _deploy(args)
 
     if args.cmd == "ci":
         from .gitops import add_ci
@@ -712,3 +725,25 @@ def _new(args) -> int:
     print(f"\nNext:\n  cd {dest}\n  pip install -r requirements.txt && uvicorn app.main:app --reload\n"
           f"  switchyard secure && switchyard deploy")
     return 0 if res["tests_ok"] else 1
+
+
+def _deploy(args) -> int:
+    from . import deploy
+    try:
+        if args.target in ("status", "logs", "delete"):
+            if args.target == "status":
+                st = deploy.status(args.app)
+                print(f"{st['name']}: {st['state']}  {st['url'] or ''}  ({st['endpoint']})")
+            elif args.target == "logs":
+                print(deploy.logs(args.app))
+            else:
+                print(f"deleted {deploy.delete(args.app)} (it no longer bills)")
+            return 0
+        kw = {k: v for k, v in (("platform", args.platform), ("preset", args.preset)) if v}
+        res = deploy.Deployer(args.target, args.name, private=args.private, force=args.force, **kw).run()
+    except deploy.DeployError as e:
+        print(f"deploy: {e}", file=sys.stderr)
+        return 1
+    print(f"Live: {res['url']}  ({'healthy' if res['healthy'] else 'not answering yet'})")
+    print(f"Endpoint {res['endpoint']} bills until deleted: `switchyard deploy delete {res['name']}`")
+    return 0 if res["healthy"] else 1
