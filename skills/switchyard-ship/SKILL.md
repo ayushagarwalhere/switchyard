@@ -58,3 +58,23 @@ switchyard deploy delete        # stop billing
 ```
 
 Redeploying the same app replaces its old endpoint once the new one is healthy.
+
+## 5. Keep it running
+
+```bash
+switchyard oncall                    # WispOps watches every deployed app (needs Node 18.17+)
+switchyard deploy logs --explain     # Nemotron reads the logs: what's failing, why, and the one command that fixes it
+```
+
+When an app breaks, the on-call agent finds the change that caused it, proposes one fix (restart, or roll back to the
+last healthy image), applies it only when the user approves (typed, or said back with Wispr Flow with `--voice`),
+and proves the app recovered. Never approve a fix on the user's behalf.
+
+## 6. Review AI code before it merges
+
+```bash
+switchyard pr-review --base origin/main
+```
+
+Shows each AI call the branch adds or changes, its cost at volume vs Nemotron, which Nemotron tier is worth
+testing, and security issues on the changed lines. In CI: `examples/switchyard-review.yml` posts it as a PR comment.

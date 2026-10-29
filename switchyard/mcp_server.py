@@ -20,6 +20,8 @@ INSTRUCTIONS = (
     "Secure: secure_app checks secrets, vulnerable dependencies, risky config and every LLM call (free). "
     "Optimize: scan_llm_calls (free) -> show the calls and estimated cost -> start_migration only after the user "
     "agrees to a spend limit -> migration_status until done -> migration_results -> apply_migration. "
+    "Route live: routing_table + `switchyard router`. Review: review_pull_request before merging AI code. "
+    "Keep it running: oncall_setup, then `switchyard oncall`. "
     "Deploy: deploy_app ships the app to a Nebius Serverless endpoint (it bills until deleted: tell the user, and "
     "use delete_deployment when they're done). Long tasks return a job_id: poll job_status. Never ask the user to "
     "paste an API key into the chat; if a key is missing, ask them to run `switchyard setup` in a terminal.")
@@ -254,7 +256,37 @@ def delete_deployment(name: str) -> dict:
         return {"error": str(e)}
 
 
-TOOLS = [create_app, change_app, secure_app, scan_llm_calls, audit_llm_calls, start_migration, migration_status,
+def review_pull_request(path: str, base: str | None = None, head: str = "HEAD", monthly_calls: int = 100_000) -> dict:
+    """Review a branch or PR's AI code (static, free): LLM calls added/changed, cost per month at the given volume vs
+    Nemotron, which Nemotron tier is worth testing, and security issues on the changed lines only. Returns the
+    Markdown comment too."""
+    from . import prreview
+    res = prreview.review(_root(path), base=base, head=head, volume=monthly_calls)
+    return {"verdict": prreview.verdict(res), "worst": prreview.fail_level(res), "markdown": prreview.markdown(res)}
+
+
+def routing_table(run_id: str | None = None) -> dict:
+    """The live router's routes (feature -> Nemotron model + fallback chain), optionally from a finished migration
+    run, plus how to point an app at `switchyard router`."""
+    from . import router
+    routes = router.load_routes()
+    if run_id:
+        routes.update(router.routes_from_run(run_id))
+    return {"routes": {k: {"model": v.get("model"), "fallback": v.get("fallback")} for k, v in routes.items()},
+            "start": "switchyard router" + (f" --run {run_id}" if run_id else ""), "snippet": router.snippet()}
+
+
+def oncall_setup(require_voice: bool = False) -> dict:
+    """Write the on-call (WispOps) config for every deployed app: health URL, restart, rollback, release and logs via
+    `switchyard deploy`. The user starts the agent with `switchyard oncall` in a terminal."""
+    from . import oncall
+    cfg = oncall.write_config(require_voice)
+    return {"config": str(oncall.CONFIG), "apps": [s["id"] for s in cfg["services"] if s.get("_switchyard")],
+            "start": "switchyard oncall" + (" --voice" if require_voice else ""),
+            "approvals": "Wispr Flow say-back" if require_voice else "typed"}
+
+
+TOOLS = [review_pull_request, routing_table, oncall_setup, create_app, change_app, secure_app, scan_llm_calls, audit_llm_calls, start_migration, migration_status,
          migration_results, apply_migration, deploy_app, deployment_status, delete_deployment, job_status]
 
 

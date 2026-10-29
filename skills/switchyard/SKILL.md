@@ -108,3 +108,9 @@ bar, for example after a prompt edit.
 - `budget`: the run stopped at the cap. Offer a smaller run (`--tests 4`, `--max-sites 5`) or a
   higher `--budget`, and let the user choose.
 - Anything else: show the user the error text as-is.
+
+## Route live
+
+After a migration, `switchyard router --run latest` starts an OpenAI-compatible gateway: each AI feature goes to
+its tested Nemotron model, falls back to the next tier when a call fails, and is metered per feature
+(`switchyard router --stats`). Point the app's OpenAI client at it with the snippet it prints.
