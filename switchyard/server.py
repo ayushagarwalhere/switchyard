@@ -19,6 +19,31 @@ from .pipeline import RUNS_DIR, Run
 WEB = Path(__file__).resolve().parent / "web"
 DEMO_DIR = RUNS_DIR / "demo"
 PUBLIC = os.environ.get("SWITCHYARD_PUBLIC") == "1"
+RECORDED_URL = os.environ.get("SWITCHYARD_RECORDED_URL",
+                              "https://raw.githubusercontent.com/ayushagarwalhere/switchyard/main/runs/demo/")
+
+
+def fetch_recorded(dest: Path | None = None, base: str = RECORDED_URL, timeout: float = 15) -> list[str]:
+    """An installed Switchyard has no recorded runs: download the published ones (read-only JSON) once."""
+    import urllib.request
+    dest = dest or DEMO_DIR
+    if any(dest.glob("*/run.json")):
+        return []
+    got = []
+    try:
+        with urllib.request.urlopen(base + "featured.txt", timeout=timeout) as r:
+            ids = [i for i in r.read().decode().split() if re.fullmatch(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{4}", i)]
+        for rid in ids[:10]:
+            with urllib.request.urlopen(f"{base}{rid}/run.json", timeout=timeout) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            (dest / rid).mkdir(parents=True, exist_ok=True)
+            (dest / rid / "run.json").write_text(json.dumps(data), encoding="utf-8")
+            got.append(rid)
+        if got:
+            (dest / "featured.txt").write_text("\n".join(got) + "\n", encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return got
 RUN_CODE = os.environ.get("SWITCHYARD_RUN_CODE", "")
 PUBLIC_BUDGET = float(os.environ.get("SWITCHYARD_RUN_BUDGET", "0.50"))
 
@@ -78,7 +103,14 @@ def list_runs():
                 continue
             seen.add(p.parent.name)
             out.append({"id": s["id"], "source": s["source"], "status": s["status"], "featured": featured,
-                        "summary": s.get("summary"), "usage": s.get("usage"), "started": s.get("started")})
+                        "summary": s.get("summary"), "usage": s.get("usage"), "started": s.get("started"),
+                        "sources": sum(len(x.get("sources") or []) for x in s.get("sites") or [])})
+    # runs/demo/featured.txt names the run the home page, hero numbers and judge tour lead with
+    try:
+        lead = (DEMO_DIR / "featured.txt").read_text(encoding="utf-8").split()[0]
+        out.sort(key=lambda r: r["id"] != lead)
+    except (OSError, IndexError):
+        pass
     for rid, run in LIVE.items():
         if rid not in seen:
             out.insert(0, {"id": rid, "source": run.source, "status": run.state["status"], "featured": False})

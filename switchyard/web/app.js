@@ -9,7 +9,7 @@ const usd = (x, d = 4) => {
   if (x > 0 && x < 0.01) return `$${x.toFixed(Math.max(d, 4))}`;
   return `$${x.toFixed(d)}`;
 };
-const money = (x) => (x == null ? "–" : x >= 1000 ? `$${Math.round(x).toLocaleString()}` : `$${x.toFixed(2)}`);
+const money = (x) => (x == null ? "–" : x >= 1000 ? `$${Math.round(x).toLocaleString("en-US")}` : `$${x.toFixed(2)}`);
 
 let CFG = null;
 let current = null;      // run id on screen
@@ -48,7 +48,14 @@ async function boot() {
   window.addEventListener("hashchange", () => {
     const h = location.hash.slice(1);
     if (h === "tour") window.Tour?.open();
-    else { window.Tour?.close(); if (h && h !== current && (window._runs || []).some((r) => r.id === h)) openRun(h); }
+    else {
+      window.Tour?.close();
+      const [rid, tab] = h.split(":");                 // #<run> or #<run>:<tab>
+      if (rid && (window._runs || []).some((r) => r.id === rid)) {
+        if (rid !== current) openRun(rid, { tab, keepHash: !!tab, scroll: true });
+        else if (tab) { $(`#runView .tabs button[data-tab="${tab}"]`)?.click(); $("#runView")?.scrollIntoView({ block: "start" }); }
+      }
+    }
   });
   if (fromHash === "tour") {
     window.Tour?.open();
@@ -56,7 +63,7 @@ async function boot() {
     if (featured) openRun(featured.id, { keepHash: true });
   } else if (fromHash) {
     const [rid, tab] = fromHash.split(":");          // #<run> or #<run>:<tab> (sites, patch, savings, spend, log)
-    openRun(rid, { tab, keepHash: !!tab });
+    openRun(rid, { tab, keepHash: !!tab, scroll: true });
   }
   else {
     const featured = window._runs?.find((r) => r.featured);
@@ -82,7 +89,8 @@ async function loadRuns() {
   if (!runs.length) { ul.innerHTML = `<li class="muted small">No runs yet.</li>`; return; }
   ul.innerHTML = runs.map((r) => {
     const s = r.summary;
-    const meta = s ? `${s.migrated}/${s.sites} calls switched · ${s.saving_pct}% cheaper` : r.status;
+    const meta = (s ? `${s.migrated}/${s.sites} calls switched · ${s.saving_pct}% cheaper` : r.status)
+      + (r.sources ? ` · Tavily inputs` : "");
     const name = shortSource(r.source).replace(/^github\.com\//, "");
     return `<li><button data-id="${esc(r.id)}" class="${r.id === current ? "active" : ""}">
       <span class="rl-src">${esc(name)}${r.featured ? '<span class="badge">recorded</span>' : ""}</span>
@@ -176,6 +184,7 @@ async function openRun(id, opts = {}) {
   render(state);
   setupRunHeader(view, state);
   if (opts.tab) $(`.tabs button[data-tab="${opts.tab}"]`, view)?.click();
+  if (opts.scroll) view.scrollIntoView({ block: "start" });   // deep links land on the run, not the hero
   if (state.status === "running") {
     es = new EventSource(`/api/runs/${id}/events`);
     es.onmessage = () => scheduleRefetch(id);
@@ -247,7 +256,7 @@ function render(state) {
   const dur = state.finished ? `${Math.round(state.finished - state.started)}s` : "";
   const sc = state.scan;
   k("meta").innerHTML = [
-    sc ? `${sc.calls} LLM call${sc.calls === 1 ? "" : "s"} in ${sc.files} source files (${sc.loc.toLocaleString()} lines)` : "",
+    sc ? `${sc.calls} LLM call${sc.calls === 1 ? "" : "s"} in ${sc.files} source files (${sc.loc.toLocaleString("en-US")} lines)` : "",
     state.commit ? `commit <code>${esc(state.commit)}</code>` : "",
     dur ? `took ${dur}` : "",
     state.error ? `<span class="bad">${esc(state.error)}</span>` : "",
@@ -457,7 +466,7 @@ function patchView(state) {
   return `<div class="panel-grid">
     <div class="card"><h3>Verification</h3>${compile}${p.tests ? `<div>${p.tests.ok ? '<span class="ok">✓</span> project tests pass' : '<span class="bad">✗</span> project tests failed'}</div>` : ""}
       <p class="small muted">Strategy: ${p.mode === "dedicated-client" ? "calls that stay on the original provider keep their client; migrated calls use a dedicated Token Factory client." : "every call migrates, so the existing clients point at Token Factory."} Each model can be overridden with an env var, so rollback is one line.</p></div>
-    <div class="card"><div class="card-h"><h3>.env for the migrated app</h3><button class="copy-btn" data-copy="env">Copy</button></div><pre class="mono small" style="white-space:pre-wrap;margin:0">${esc(p.env || "")}</pre></div>
+    <div class="card"><div class="card-h"><h3>.env for the migrated app</h3><button class="copy-btn" data-copy="env">Copy</button></div><pre class="mono small" style="white-space:pre-wrap;overflow-wrap:anywhere;margin:0">${esc(p.env || "")}</pre></div>
     ${p.changed?.length ? `<div class="card"><div class="card-h"><h3>Apply it to your repo</h3><button class="copy-btn" data-copy="apply">Copy</button></div>
       <pre class="mono small apply-cmd">${esc(applyCmd(state))}</pre>
       <p class="small muted">Run it from the folder Switchyard scanned. Review the diff first; every model sits behind an env var, so rolling back one call is a one-line change.</p></div>` : ""}
@@ -626,7 +635,7 @@ function bindCalc(view, state, vm) {
   const after = migrated.reduce((a, s) => a + s.savings.new_cost_per_call, 0);
   const upd = () => {
     const v = Math.round(10 ** +r.value);
-    $("#volOut", view).textContent = v.toLocaleString();
+    $("#volOut", view).textContent = v.toLocaleString("en-US");
     $("#mBefore", view).textContent = money(before * v);
     $("#mAfter", view).textContent = money(after * v);
     $("#mSave", view).textContent = money((before - after) * v * 12);
@@ -641,12 +650,12 @@ function spendView(state) {
   const roleName = { investigate: "Investigate the codebase", harness: "Write calls for the patched code", audit: "Attack prompts (security probes)", analyze: "Understand call sites", testgen: "Write tests + reference answers", judge: "Grade outputs", repair: "Adapt prompts" };
   const rows = Object.entries(u.by_role).sort((a, b) => b[1].cost - a[1].cost).map(([role, r]) => {
     const label = role.startsWith("candidate:") ? `Candidate runs: ${MODEL_LABEL[role.split(":")[1]] || role}` : roleName[role] || role;
-    return `<tr><td>${esc(label)}</td><td>${chip(r.model)}</td><td>${r.calls}</td><td>${r.tokens_in.toLocaleString()}</td><td>${r.tokens_out.toLocaleString()}</td><td>${usd(r.cost, 4)}</td></tr>`;
+    return `<tr><td>${esc(label)}</td><td>${chip(r.model)}</td><td>${r.calls}</td><td>${r.tokens_in.toLocaleString("en-US")}</td><td>${r.tokens_out.toLocaleString("en-US")}</td><td>${usd(r.cost, 4)}</td></tr>`;
   }).join("");
   return `<div class="card"><h3>Switchyard runs on Nemotron too</h3>
     <p class="small muted">Each job goes to the model that fits it: Super for fast analysis and grading, Ultra with reasoning only where quality matters most (writing tests, adapting prompts).</p>
     <table class="simple"><thead><tr><th>Job</th><th>Model</th><th>Calls</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th></tr></thead><tbody>${rows}
-    <tr><td><b>Total</b></td><td></td><td><b>${u.calls}</b></td><td><b>${u.tokens_in.toLocaleString()}</b></td><td><b>${u.tokens_out.toLocaleString()}</b></td><td><b>${usd(u.cost, 4)}</b></td></tr></tbody></table></div>`;
+    <tr><td><b>Total</b></td><td></td><td><b>${u.calls}</b></td><td><b>${u.tokens_in.toLocaleString("en-US")}</b></td><td><b>${u.tokens_out.toLocaleString("en-US")}</b></td><td><b>${usd(u.cost, 4)}</b></td></tr></tbody></table></div>`;
 }
 
 function logLine(ev) {

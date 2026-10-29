@@ -232,3 +232,17 @@ def test_demo_creates_a_ready_to_run_app(tmp_path, capsys, js):
     assert ("4 LLM calls" if js else "3 LLM calls") in out and "switchyard run" in out
     assert _git(dest, "log", "--oneline").strip()                     # its own repo, so apply works
     assert cli.main(["demo", str(dest)]) == 2                          # never overwrites a folder
+
+
+def test_serve_fetches_recorded_runs_once(tmp_path):
+    """An installed copy has no runs/demo: `serve` downloads the published runs, and only when missing."""
+    from switchyard import server
+    src = tmp_path / "published"
+    (src / "20261029-142754-6b1f").mkdir(parents=True)
+    (src / "20261029-142754-6b1f" / "run.json").write_text('{"id": "20261029-142754-6b1f"}')
+    (src / "featured.txt").write_text("20261029-142754-6b1f\n../../etc/passwd\n")
+    dest = tmp_path / "demo"
+    base = src.as_uri() + "/"
+    assert server.fetch_recorded(dest, base) == ["20261029-142754-6b1f"]
+    assert (dest / "20261029-142754-6b1f" / "run.json").exists()
+    assert server.fetch_recorded(dest, base) == []          # already there: no download

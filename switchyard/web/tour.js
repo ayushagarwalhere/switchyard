@@ -54,7 +54,7 @@
     const sc = st.scan || {};
     return {
       title: `${sc.calls ?? sites.length} LLM calls. ${top.length === 1 ? "One model for all of them." : `${top.length} frontier models, no routing.`}`,
-      text: `Switchyard read ${sc.files ?? "–"} source files (${(sc.loc ?? 0).toLocaleString()} lines) without running any of them, and found every OpenAI / Anthropic SDK call, with its prompt template, parameters and output schema. Today each one goes to ${top.map(([m]) => `<code>${esc(m)}</code>`).join(", ")}, whether it routes a request or writes an essay.`,
+      text: `Switchyard read ${sc.files ?? "–"} source files (${(sc.loc ?? 0).toLocaleString("en-US")} lines) without running any of them, and found every OpenAI / Anthropic SDK call, with its prompt template, parameters and output schema. Today each one goes to ${top.map(([m]) => `<code>${esc(m)}</code>`).join(", ")}, whether it routes a request or writes an essay.`,
       visual: `<div class="t-kpis">${kpi(sc.calls ?? sites.length, "LLM calls found")}${kpi(sc.files ?? "–", "source files")}${kpi(top.length, top.length === 1 ? "model used" : "models used")}</div>
         <ul class="t-calls">${sites.map((s) => `<li><span class="t-fn">${esc(fnOf(s))}</span><span class="t-loc">${esc(s.site.file)}:${s.site.line}</span><span class="t-track"></span><code class="t-model">${esc(modelOf(s))}</code></li>`).join("")}</ul>`,
     };

@@ -333,6 +333,10 @@ def _dispatch(args) -> int:
 
     if args.cmd == "serve":
         import uvicorn
+        from .server import fetch_recorded
+        got = fetch_recorded()
+        if got:
+            print(f"Downloaded {len(got)} recorded run(s) to browse (real Token Factory migrations)")
         print(f"Switchyard on http://{args.host}:{args.port}")
         uvicorn.run("switchyard.server:app", host=args.host, port=args.port)
         return 0
