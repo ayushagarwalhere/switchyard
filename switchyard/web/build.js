@@ -97,6 +97,65 @@
     });
   };
 
+  /* sandbox: the built app in a local container, previewed in the page, with its code */
+  function sbTab(name) {
+    document.querySelectorAll(".sb-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.sb === name));
+    document.querySelectorAll(".sb-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+  }
+  document.querySelectorAll(".sb-tabs button").forEach((b) => (b.onclick = () => sbTab(b.dataset.sb)));
+
+  async function loadFiles() {
+    const files = await api(`/api/sandbox/files?path=${encodeURIComponent(appPath)}`).catch(() => []);
+    $("#sbFiles").innerHTML = files.map((f) => `<li><button type="button" data-file="${esc(f.path)}">${esc(f.path)}</button></li>`).join("");
+    document.querySelectorAll("[data-file]").forEach((b) => (b.onclick = async () => {
+      document.querySelectorAll("[data-file]").forEach((x) => x.classList.toggle("active", x === b));
+      const r = await fetch(`/api/sandbox/file?path=${encodeURIComponent(appPath)}&file=${encodeURIComponent(b.dataset.file)}`);
+      $("#sbSrc").textContent = r.ok ? await r.text() : `(${r.status}) can't show this file`;
+    }));
+    const first = document.querySelector('[data-file="app/main.py"]') || document.querySelector("[data-file]");
+    first?.click();
+  }
+
+  function showSandbox(url) {
+    const v = $("#sandboxView");
+    v.hidden = false;
+    $("#empty").hidden = true;
+    $("#sbTitle").textContent = $("#appTitle").textContent;
+    $("#sbUrl").textContent = url || "starting…";
+    if (url) { $("#sbFrame").src = url; $("#sbOpen").href = url; }
+    v.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  $("#sandboxBtn").onclick = () => run(async () => {
+    log("Building the container and starting the sandbox…", false);
+    showSandbox(null);
+    loadFiles();
+    const job = await api("/api/sandbox", { method: "POST", body: JSON.stringify({ path: appPath }) });
+    await follow(job, (res) => {
+      if (!res) return;
+      showSandbox(res.url);
+      log(`\nSandbox running at ${res.url} (${res.healthy ? "healthy" : "starting"})`);
+    });
+  });
+  $("#sbReload").onclick = () => { const f = $("#sbFrame"); if (f.src) f.src = f.src; };
+  $("#sbStop").onclick = () => run(async () => {
+    await api(`/api/sandbox?path=${encodeURIComponent(appPath)}`, { method: "DELETE" });
+    $("#sbFrame").removeAttribute("src");
+    $("#sandboxView").hidden = true;
+    log("Sandbox stopped.", false);
+  });
+
+  $("#openForm").onsubmit = (e) => {
+    e.preventDefault();
+    const p = $("#openPath").value.trim();
+    if (!p) return;
+    run(async () => {
+      await api(`/api/sandbox/files?path=${encodeURIComponent(p)}`);   // checks the folder exists
+      showApp({ dest: p, plan: { title: p.split(/[\\/]/).filter(Boolean).pop() } });
+      log(`Opened ${p}`, false);
+    });
+  };
+
   async function loadDeployments() {
     const list = await api("/api/deployments").catch(() => []);
     $("#deployList").innerHTML = list.length ? `<h3 class="small" style="margin:14px 0 6px">Deployments</h3>` + list.map((d) =>

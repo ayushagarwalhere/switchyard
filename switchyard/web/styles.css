@@ -293,3 +293,24 @@ button.secondary:disabled { opacity: .45; cursor: progress; }
 .deploy-row { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
 .deploy-row a { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-btn { background: none; border: 0; color: var(--bad); cursor: pointer; padding: 0; font: inherit; }
+
+/* sandbox: the built app running in a local container, previewed in the page */
+.sandbox { padding: 0; overflow: hidden; scroll-margin-top: 76px; }
+.sb-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.sb-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); margin-right: 8px; vertical-align: 0; }
+.sb-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-sm { padding: 6px 12px; font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; }
+.sb-tabs { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--line); }
+.sb-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 8px 12px; cursor: pointer; font: inherit; }
+.sb-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+.sb-browser { padding: 8px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.sb-url { color: var(--muted); }
+#sbFrame { display: block; width: 100%; height: 640px; border: 0; background: #fff; }
+.sb-code { display: grid; grid-template-columns: 220px 1fr; min-height: 640px; }
+.sb-files { list-style: none; margin: 0; padding: 8px; border-right: 1px solid var(--line); overflow: auto; max-height: 640px; }
+.sb-files button { width: 100%; text-align: left; background: none; border: 0; color: var(--muted); padding: 6px 8px; border-radius: 6px; cursor: pointer; font: 13px/1.3 var(--mono); overflow-wrap: anywhere; }
+.sb-files button.active, .sb-files button:hover { background: var(--accent-soft); color: var(--text); }
+.sb-src { margin: 0; padding: 14px 16px; overflow: auto; max-height: 640px; white-space: pre; }
+.sb-note { padding: 10px 18px 14px; margin: 0; }
+@media (max-width: 760px) { .sb-code { grid-template-columns: 1fr; } .sb-files { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--line); } #sbFrame { height: 520px; } }
+.sb-actions .secondary, .sb-actions .btn-sm { width: auto; margin: 0; }

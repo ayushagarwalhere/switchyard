@@ -29,7 +29,7 @@ RULES = {
 ALL_RULES = {**audit.RULES, **RULES}
 
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".pytest_cache", "site-packages"}
-TEXT_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".json", ".yml", ".yaml", ".toml", ".ini", ".cfg",
+TEXT_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".json", ".css", ".yml", ".yaml", ".toml", ".ini", ".cfg",
             ".env", ".txt", ".md", ".sh", ".html", ".tf", ".properties", ".conf"}
 SECRET_RES = [
     ("OpenAI/Anthropic key", re.compile(r"\bsk-(?:proj-|ant-(?:api\d\d-)?)?[A-Za-z0-9_\-]{24,}")),

@@ -325,6 +325,52 @@ def delete_deployment(name: str):
         raise HTTPException(400, str(e))
 
 
+# -- sandbox: run a built app in a locked-down local container and preview it in the page ----------------
+
+@app.post("/api/sandbox")
+def sandbox_start(req: PathRequest):
+    _local_only()
+    root = _app_path(req.path)
+    from . import mcp_server
+    from .deploy import Deployer
+    return mcp_server._job("sandbox", lambda emit: Deployer(root, f"sandbox-{root.name}", local=True, emit=emit,
+                                                             wait=120).run())
+
+
+@app.get("/api/sandbox/files")
+def sandbox_files(path: str):
+    _local_only()
+    root = _app_path(path)
+    from .secure import iter_files
+    return [{"path": f.relative_to(root).as_posix(), "bytes": f.stat().st_size} for f in iter_files(root)
+            if not f.name.lower().startswith(".env") or f.name.lower().endswith(".example")][:300]
+
+
+@app.get("/api/sandbox/file")
+def sandbox_file(path: str, file: str):
+    _local_only()
+    root = _app_path(path)
+    target = (root / file).resolve()
+    if not target.is_relative_to(root) or not target.is_file():
+        raise HTTPException(404, "no such file in the app")
+    if target.name.lower().startswith(".env") and not target.name.lower().endswith(".example"):
+        raise HTTPException(403, "secrets stay out of the browser")
+    if target.stat().st_size > 400_000:
+        raise HTTPException(413, "file too large to preview")
+    return PlainTextResponse(target.read_text(encoding="utf-8", errors="replace"))
+
+
+@app.delete("/api/sandbox")
+def sandbox_stop(path: str):
+    _local_only()
+    root = _app_path(path)
+    from . import deploy
+    try:
+        return {"stopped": deploy.delete(deploy._slug(f"sandbox-{root.name}"))}
+    except deploy.DeployError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "live": bool(config.api_key()), "running": sum(1 for r in LIVE.values() if r.state["status"] == "running")}

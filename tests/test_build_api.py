@@ -24,3 +24,16 @@ def test_public_demo_refuses(monkeypatch, tmp_path):
     for path, body in (("/api/build", {"idea": "a todo app with reminders"}), ("/api/secure", {"path": str(tmp_path)}),
                        ("/api/deploy", {"path": str(tmp_path), "agreed": True})):
         assert c.post(path, json=body).status_code == 403
+
+
+def test_sandbox_files_and_secrets_stay_out(tmp_path):
+    create.scaffold(tmp_path / "app1", {"name": "a", "title": "A", "endpoints": [], "ai_features": []})
+    (tmp_path / "app1" / "static" / "style.css").write_text("body{}\n")
+    (tmp_path / "app1" / ".env").write_text("NEBIUS_API_KEY=secret\n")
+    c = TestClient(server.app)
+    files = [f["path"] for f in c.get("/api/sandbox/files", params={"path": str(tmp_path / "app1")}).json()]
+    assert "static/style.css" in files and "Dockerfile" in files and ".env" not in files and ".env.example" in files
+    ok = c.get("/api/sandbox/file", params={"path": str(tmp_path / "app1"), "file": "Dockerfile"})
+    assert ok.status_code == 200 and "USER appuser" in ok.text
+    assert c.get("/api/sandbox/file", params={"path": str(tmp_path / "app1"), "file": ".env"}).status_code == 403
+    assert c.get("/api/sandbox/file", params={"path": str(tmp_path / "app1"), "file": "../../etc/passwd"}).status_code == 404

@@ -67,12 +67,17 @@
         </label>
         <button id="buildBtn" class="primary" type="submit">Build app</button>
       </form>
+      <form id="openForm" class="inline-form">
+        <input id="openPath" placeholder="or open an app folder (full path)" autocomplete="off">
+        <button class="secondary" type="submit">Open</button>
+      </form>
       <div id="appPanel" hidden>
         <p class="small"><b id="appTitle"></b><br><span class="muted mono" id="appPath"></span></p>
         <div class="row2">
           <button class="secondary" type="button" id="secureBtn">Secure</button>
           <button class="secondary" type="button" id="deployBtn">Deploy to Nebius</button>
         </div>
+        <button class="primary" type="button" id="sandboxBtn" style="margin-top:8px;width:100%">Run in sandbox</button>
         <form id="changeForm" class="inline-form">
           <input id="changeText" placeholder="Ask for a change, e.g. add a dark mode toggle" autocomplete="off">
           <button class="secondary" type="submit">Change</button>
@@ -143,6 +148,31 @@
       <h1>Pick a run to see the receipts.</h1>
       <p>Most apps send every call to one frontier model. Many of those calls are classification, extraction or short summaries that a smaller open model handles just as well. Switchyard finds each call, tests it on the NVIDIA Nemotron family, and only switches the calls that pass.</p>
       <p class="muted">Pick a recorded run on the left to see a full migration, or start a new one.</p>
+    </div>
+    <div id="sandboxView" class="card sandbox" hidden>
+      <div class="sb-head">
+        <div><span class="sb-dot"></span><b>Sandbox</b> <span class="muted small" id="sbTitle"></span></div>
+        <div class="sb-actions">
+          <a id="sbOpen" class="secondary btn-sm" target="_blank" rel="noopener">Open in new tab</a>
+          <button id="sbReload" class="secondary btn-sm" type="button">Reload</button>
+          <button id="sbStop" class="secondary btn-sm" type="button">Stop</button>
+        </div>
+      </div>
+      <div class="sb-tabs" role="tablist">
+        <button class="active" data-sb="preview" type="button">Preview</button>
+        <button data-sb="code" type="button">Code</button>
+      </div>
+      <div class="sb-pane" data-pane="preview">
+        <div class="sb-browser"><span class="sb-url mono small" id="sbUrl">starting…</span></div>
+        <iframe id="sbFrame" title="Your app, running in the sandbox" sandbox="allow-scripts allow-forms allow-same-origin allow-popups"></iframe>
+      </div>
+      <div class="sb-pane" data-pane="code" hidden>
+        <div class="sb-code">
+          <ul class="sb-files" id="sbFiles"></ul>
+          <pre class="sb-src mono small" id="sbSrc">Pick a file.</pre>
+        </div>
+      </div>
+      <p class="muted small sb-note">Runs on your machine in a container: non-root, bound to 127.0.0.1 only, the same image <code>switchyard deploy</code> ships to Nebius.</p>
     </div>
     <div id="runView" hidden></div>
   </section>
