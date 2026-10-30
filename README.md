@@ -25,7 +25,12 @@ Switchyard tests every LLM call in your code on Nemotron 3.5 Lightning, 3 Super 
 | Cost of the whole study on Token Factory | **$0.50** (791 Nemotron calls, 8.1 minutes) |
 | Calls it refused to switch | **4** long-form writing calls: 3 where no Nemotron model reached the bar, 1 where only Ultra did and it costs more than the call's current GPT-4o-mini |
 
-<!-- TODO(run): add a row "Held-out repo | X of Y switched" once the held-out run is published (repo, run id, X, Y). -->
+| Held-out repo, never used while building the grader ([microsoft/generative-ai-for-beginners](https://github.com/microsoft/generative-ai-for-beginners/tree/main/06-text-generation-apps/python), the 5 OpenAI calls on gpt-5-mini, run `20261030-070606-8ae0`) | |
+|---|---|
+| Calls switched | **3 of 5**, all to Nemotron 3 Super (8/8, 8/8 and 3/3 tests; the test writer returned only 3 for one call) |
+| Cheaper per request than gpt-5-mini | **54.4%** |
+| Cost of the study | **$0.35** (319 Nemotron calls, about 3 minutes) |
+| Kept | **2**: a recipe-refinement call where no Nemotron model passed any test, and a role-play Q&A call where the best reached 75% |
 
 **Judges:** the [5-minute guide](docs/JUDGES.md) shows where to look. Open the [live demo](https://16-178-179-90.sslip.io/) and press **Judge tour**. To browse the same recorded runs locally with no key: `pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.1" && switchyard serve`, then press **Judge tour**.
 
@@ -97,7 +102,7 @@ Tavily gives the test writer real-world inputs (articles, tickets, event announc
 - **Where in the code:** `tavily_sources()` and the call in `Run.process_site()` in [switchyard/pipeline.py](switchyard/pipeline.py). Tavily is called during a live `switchyard run`; browsing a recorded run on the demo makes no Tavily calls.
 - **Recorded run with Tavily inputs:** `20261029-150732-a954` ([open it on the live demo](https://16-178-179-90.sslip.io/#20261029-150732-a954:sites), [run.json](runs/demo/20261029-150732-a954/run.json)). All 11 call sites got sources (10 with 5 results, 1 with 3: 53 in all).
 
-<!-- TODO(screenshot): docs/img/tavily.jpg — one call's tests in the web app with its Tavily sources listed. Then add: ![A call's tests with the Tavily sources they were written from](docs/img/tavily.jpg) -->
+![A call's tests with the Tavily sources they were written from](docs/img/tavily.jpg)
 
 **Did Tavily change any decision?** Not measurably: the Tavily run's per-call decisions differ from the run just before it without Tavily inputs (`20261029-145534-3d40`, same repo commit) on 4 of 11 calls, but two runs without Tavily inputs (`…-6b1f` and `…-3d40`) already differ from each other on 5 of 11, so with one run of each we can't attribute any switch to Tavily.
 
@@ -325,7 +330,7 @@ What Switchyard itself spent, by job:
 
 **How the savings are computed.** For each switched call, Switchyard averages the tokens in and out over the chosen model's test runs and prices them at list prices per 1M tokens (in/out): GPT-4o $2.50/$10.00, GPT-4o-mini $0.15/$0.60, Lightning $0.06/$0.24, Super $0.30/$0.90, Ultra $1.00/$3.00 (`switchyard/config.py`). For the 7 switched calls above, one request each costs $0.0069989 on GPT-4o, $0.0004199 on GPT-4o-mini and $0.0001680 on Lightning; at 100k requests per call a month that is $699.89, $41.99 and $16.80.
 
-<!-- TODO(run): Held-out repo: X of Y switched (repo link, run id, cost). -->
+**Held-out repo.** On [microsoft/generative-ai-for-beginners](https://github.com/microsoft/generative-ai-for-beginners/tree/main/06-text-generation-apps/python) (lesson 06, the 5 calls in the `oai-*.py` files, all on gpt-5-mini), a repo we never ran while building the grader, run `20261030-070606-8ae0` switched **3 of 5** calls to Nemotron 3 Super, 54.4% cheaper per request than gpt-5-mini, for $0.35. On two of them Lightning with an adapted prompt also passed every test, but scored more than 0.05 below the best model tested, so the rule picked Super. The 2 kept calls are a recipe-refinement call (no model passed a test) and a historical-figure role-play (best 75%, bar 85%). Open it on the live demo under Runs.
 
 ## Limits
 

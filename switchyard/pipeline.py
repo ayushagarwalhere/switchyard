@@ -145,8 +145,14 @@ class Run:
             clone_dir = self.dir / "clone"
             if clone_dir.exists():
                 shutil.rmtree(clone_dir, ignore_errors=True)
-            cmd = ["git", "clone", "--depth", "1", "--quiet"] + (["--branch", branch] if branch else []) + [url, str(clone_dir)]
+            git = ["git", "-c", "core.longpaths=true"]
+            # a folder URL fetches only that folder (and the root files): big repos full of images clone in seconds
+            sparse = ["--filter=blob:none", "--sparse"] if sub else []
+            cmd = git + ["clone", "--depth", "1", "--quiet", *sparse] + (["--branch", branch] if branch else []) + [url, str(clone_dir)]
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
+            if sub:
+                subprocess.run(git + ["-C", str(clone_dir), "sparse-checkout", "set", sub],
+                               check=True, capture_output=True, text=True, timeout=300)
             commit = subprocess.run(["git", "-C", str(clone_dir), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
             self.state["commit"] = commit
             if sub:
