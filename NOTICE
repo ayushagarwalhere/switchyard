@@ -1,0 +1,24 @@
+Switchyard
+Copyright (c) the Switchyard authors. Licensed under the MIT License (see LICENSE).
+
+This product includes material adapted from Faultline:
+
+  Faultline
+  https://github.com/Prashant-thakur77/Faultline
+  Copyright (c) the Faultline authors
+  Licensed under the Apache License, Version 2.0
+  https://www.apache.org/licenses/LICENSE-2.0
+
+Portions of the web UI styling in switchyard/web/ (styles.css, hero.css, tour.css, guide.css, fx.js and the
+markup patterns in index.html) are adapted from Faultline's frontend (frontend/src/app/globals.css and its
+home page components): the colour tokens (near-black canvas, ember / iris / mint accents), the card, glass,
+hairline and gradient-text treatments, the turning-gradient ring chip, the marquee, the "+" registration
+marks, the numbers strip, the footer wordmark, the pointer-following card light and the motion curves.
+
+Changes made: rewritten as plain CSS and vanilla JavaScript (no Tailwind, React or framer-motion), a light
+theme added, and applied to Switchyard's own markup, content and behaviour. No Faultline product content,
+application code or assets are included. Faultline does not ship a NOTICE file of its own.
+
+Unless required by applicable law or agreed to in writing, the adapted material is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the Apache
+License, Version 2.0 for the specific language governing permissions and limitations.

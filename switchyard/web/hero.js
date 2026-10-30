@@ -76,15 +76,16 @@ if (!mount || !webglOK()) {
 function palette() {
   const light = document.documentElement.dataset.theme === "light";
   return light
-    ? { skyTop: 0xbfd6ea, skyMid: 0xf3dccb, horizon: 0xffe7d1, fog: 0xf1e4d8, ground: 0xe9e2d8, rail: 0x6c7a8a, tie: 0xb9ab99, main: 0x5b6b7c, dust: 0x8a7f74, light: true }
-    : { skyTop: 0x04070f, skyMid: 0x111b33, horizon: 0x4b3248, fog: 0x1d1a28, ground: 0x0e1019, rail: 0x7c8ca3, tie: 0x2b2f38, main: 0xdfe8f5, dust: 0xa9b8d6, light: false };
+    // Faultline-style neutrals: a near-black (or paper) canvas with only a hint of ember on the horizon
+    ? { skyTop: 0xf6f6f4, skyMid: 0xf1f0ee, horizon: 0xf3e7de, fog: 0xefeeec, ground: 0xebeae7, rail: 0x6b6f78, tie: 0xc9c7c2, main: 0x3f4350, dust: 0x8a8f98, light: true }
+    : { skyTop: 0x08090a, skyMid: 0x0d0e10, horizon: 0x2a1c1a, fog: 0x121315, ground: 0x0a0b0c, rail: 0x8a8f98, tie: 0x24262b, main: 0xf7f8f8, dust: 0x8a8f98, light: false };
 }
 
 function initScene() {
   const BRANCH = [
-    { key: "lightning", color: 0x3dd6c6, weight: 0.62, title: "Nemotron Lightning", sub: "fast, cheap: classification, extraction, routing" },
-    { key: "super", color: 0xa98bff, weight: 0.28, title: "Nemotron Super", sub: "balanced: summaries, structured writing" },
-    { key: "ultra", color: 0xffb057, weight: 0.10, title: "Nemotron Ultra", sub: "deep reasoning, only where it's needed" },
+    { key: "lightning", color: 0x4fdcae, weight: 0.62, title: "Nemotron Lightning", sub: "fast, cheap: classification, extraction, routing" },
+    { key: "super", color: 0x9a7cff, weight: 0.28, title: "Nemotron Super", sub: "balanced: summaries, structured writing" },
+    { key: "ultra", color: 0xff7a38, weight: 0.10, title: "Nemotron Ultra", sub: "deep reasoning, only where it's needed" },
   ];
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });

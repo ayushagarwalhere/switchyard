@@ -7,44 +7,49 @@
 <meta name="description" content="Switchyard is the Nebius ecosystem for everyday developers: it routes every AI call in your app to the right NVIDIA Nemotron model, with tests that prove it, then helps you build, secure, ship and keep your app running on Nebius.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2376b900'/%3E%3Cpath d='M6 22h20M6 22c6 0 8-12 20-12' stroke='%23071' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Mona+Sans:wdth,wght@100..125,500..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <link rel="stylesheet" href="/hero.css">
 <link rel="stylesheet" href="/tour.css">
 <link rel="stylesheet" href="/guide.css">
-<style>/* the headline is longer than it used to be: a little smaller and wider on desktop so it sits on two lines */
-@media (min-width: 1001px) { .hero-inner > .hero-title { max-width: 940px; font-size: clamp(2.6rem, 4.6vw, 4.4rem); } }</style>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js" } }</script>
 </head>
 <body>
-<div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
 <header class="top">
   <a class="brand" href="/" aria-label="Switchyard home">
-    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M6 22h20M6 22c6 0 8-12 20-12" stroke="var(--accent-ink)" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
+    <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--text)"/><path d="M7 22h18M7 22c6 0 8-12 18-12" stroke="var(--bg)" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
     <span>Switchyard</span>
   </a>
-  <p class="tagline">Move every LLM call to <b>NVIDIA Nemotron</b> on <b>Nebius Token Factory</b>, one call site at a time, with tests that prove each switch.</p>
   <nav class="top-nav" aria-label="Sections">
-    <a href="#app" data-scroll="#app">Runs</a>
-    <a href="#how" data-scroll="#how">How it works</a>
-    <a href="#tour" class="nav-tour">Judge tour</a>
+    <a href="#app" data-scroll="#app" data-nav="#app">Runs</a>
+    <a href="#steps" data-scroll="#steps" data-nav="#steps">Ecosystem</a>
+    <a href="#how" data-scroll="#how" data-nav="#how">How it works</a>
+    <a href="#tour" class="nav-tour" data-nav="tour">Judge tour</a>
   </nav>
-  <button id="themeBtn" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  <div class="top-right">
+    <span class="status-pill" title="Every model step runs on NVIDIA Nemotron through Nebius Token Factory"><i></i>Nemotron on Token Factory</span>
+    <button id="themeBtn" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </div>
 </header>
 
 <section class="hero" id="hero" aria-label="Switchyard">
   <div class="hero-canvas" id="heroCanvas" aria-hidden="true"></div>
   <div class="hero-veil" aria-hidden="true"></div>
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="contours" aria-hidden="true"></div>
+  <div class="beam" aria-hidden="true"></div>
+  <div class="reg" aria-hidden="true"><i></i><i></i></div>
   <div class="hero-label" id="heroLabel" role="status" aria-live="polite"></div>
   <div class="hero-inner">
-    <p class="hero-kicker"><span class="pulse-dot"></span> NVIDIA Nemotron · Nebius Token Factory</p>
-    <h1 class="hero-title">The Nebius ecosystem<br>for <em>everyday developers</em>.</h1>
-    <p class="hero-sub">Switchyard routes every AI call in your app to the right NVIDIA Nemotron model, with tests that prove it. Then it helps you build, secure, ship and keep your app running on Nebius.</p>
+    <p class="hero-kicker ring-chip"><span><span class="pulse-dot"></span>NVIDIA Nemotron · Nebius Token Factory</span></p>
+    <h1 class="hero-title"><span class="ln"><span>The Nebius ecosystem</span></span><span class="ln"><span><em class="grad-text">for everyday developers.</em></span></span></h1>
+    <p class="hero-sub">Switchyard routes every AI call in your app to the right NVIDIA Nemotron model, <b>with tests that prove it</b>. Then it helps you build, secure, ship and keep your app running on Nebius.</p>
     <div class="hero-cta">
-      <a class="btn-glow" href="#app" data-scroll="#app" data-focus="#source">Start a migration</a>
+      <a class="btn-glow" href="#app" data-scroll="#app" data-focus="#source">Start a migration <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
       <a class="btn-ghost" href="#app" data-scroll="#app" data-focus="#auditSource">Free audit of any repo</a>
       <a class="btn-ghost" href="#app" data-scroll="#main">Watch a recorded run</a>
-      <a class="btn-tour" href="#tour"><span class="pulse-dot"></span>Judge tour · 3 min</a>
+      <a class="btn-tour" href="#tour"><span><span class="pulse-dot"></span>Judge tour · 3 min <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg></span></a>
     </div>
     <ul class="hero-legend" aria-label="Tracks">
       <li><i style="--c: var(--lightning)"></i>Lightning <span>most calls</span></li>
@@ -52,18 +57,59 @@
       <li><i style="--c: var(--ultra)"></i>Ultra <span>only when needed</span></li>
     </ul>
   </div>
-  <div class="hero-stats" aria-label="Latest run">
-    <div class="glass-chip"><b id="hero-stat-1">–</b><span>calls switched</span></div>
-    <div class="glass-chip"><b id="hero-stat-2">–</b><span>cheaper per request</span></div>
-    <div class="glass-chip"><b id="hero-stat-3">–</b><span>to run the migration</span></div>
-  </div>
-  <a class="scroll-cue" href="#app" data-scroll="#app" aria-label="Scroll to the app"><span></span></a>
+  <a class="scroll-cue" href="#steps" data-scroll="#steps" aria-label="Scroll to explore"><span></span></a>
 </section>
+
+<section class="numbers home-only" aria-label="Latest recorded run">
+  <dl class="hero-stats">
+    <div><dt>Switched<i></i><em>proven per call</em></dt><dd><b id="hero-stat-1">–</b><p>LLM calls moved to Nemotron in the latest recorded run on a real repo. The rest failed their tests and stay on their current model.</p></dd></div>
+    <div><dt>Cost<i></i><em>lower is better</em></dt><dd><b id="hero-stat-2">–</b><p>cheaper per request for the switched calls than the model they use today, at Token Factory list prices.</p></dd></div>
+    <div><dt>Study<i></i><em>one-off</em></dt><dd><b id="hero-stat-3">–</b><p>spent on Token Factory to scan, test, evaluate, repair, patch and audit every call in that repo.</p></dd></div>
+  </dl>
+  <p class="src">Read from the recorded run below · nothing here is estimated</p>
+</section>
+
+<section class="pillars home-only" id="steps" aria-labelledby="steps-title">
+  <p class="kicker">One toolkit · every model step on Nemotron · six steps</p>
+  <h2 id="steps-title">Routing that <span class="mark">proves each switch</span>, <span>then the rest of the path from an idea to an app running on Nebius.</span></h2>
+  <div class="pillar-grid">
+    <article class="card pillar core"><div class="n">01 · THE CORE <span class="st">Proven</span></div><h3>Route every AI call</h3>
+      <p>Each call is tested on Nemotron 3.5 Lightning, 3 Super and 3 Ultra and moves to the cheapest one that passes, with a pull request and the evidence. <code>switchyard router</code> then sends each feature to its tested model.</p>
+      <a class="card-link" href="#app" data-scroll="#app" data-focus="#source">Start a migration <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a></article>
+    <article class="card pillar"><div class="n">02 <span class="st work">Working</span></div><h3>Build</h3>
+      <p>Nemotron Super plans and writes a FastAPI app with tests, a non-root Dockerfile and a Token Factory client, then changes it on request.</p>
+      <span class="cmd">switchyard new "&lt;idea&gt;"</span></article>
+    <article class="card pillar"><div class="n">03 <span class="st work">Working</span></div><h3>Review</h3>
+      <p>A comment on every pull request that touches AI code: the cost at your volume, the Nemotron model worth testing, and security issues on the changed lines.</p>
+      <span class="cmd">switchyard pr-review</span></article>
+    <article class="card pillar"><div class="n">04 <span class="st">Proven</span></div><h3>Secure</h3>
+      <p>Leaked keys, model output reaching eval, shell or SQL, user input in system prompts, missing timeouts and token caps. Then injection probes on Nemotron.</p>
+      <a class="card-link" href="#app" data-scroll="#app" data-focus="#auditSource">Free audit of any repo <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a></article>
+    <article class="card pillar"><div class="n">05 <span class="st prev">Preview</span></div><h3>Ship</h3>
+      <p>Runs the security checks, builds the image and deploys it to Nebius Serverless with the app's Token Factory key, then health-checks the URL.</p>
+      <span class="cmd">switchyard deploy</span></article>
+    <article class="card pillar"><div class="n">06 <span class="st work">Working</span></div><h3>Run</h3>
+      <p>On-call for the deployed app: finds the change that broke it, proposes one fix, applies it when you approve and proves it recovered.</p>
+      <span class="cmd">switchyard oncall</span></article>
+  </div>
+</section>
+
+<div class="ticker home-only" aria-label="Works with">
+  <div class="ticker-row">
+    <ul><li>Nemotron 3.5 Lightning</li><li>Nemotron 3 Super</li><li>Nemotron 3 Ultra</li><li>Nebius Token Factory</li><li>OpenAI SDK</li><li>Anthropic SDK</li><li>LiteLLM</li><li>LangChain</li><li>Vercel AI SDK</li><li>Tavily</li><li>MCP</li><li>GitHub Actions</li></ul>
+    <ul aria-hidden="true"><li>Nemotron 3.5 Lightning</li><li>Nemotron 3 Super</li><li>Nemotron 3 Ultra</li><li>Nebius Token Factory</li><li>OpenAI SDK</li><li>Anthropic SDK</li><li>LiteLLM</li><li>LangChain</li><li>Vercel AI SDK</li><li>Tavily</li><li>MCP</li><li>GitHub Actions</li></ul>
+  </div>
+</div>
+
+<div class="app-head home-only">
+  <div><p class="kicker">The app</p><h2>Recorded runs, <span class="grad-text">with the receipts.</span></h2></div>
+  <p>Open a recorded migration to see every call site, the tests behind each switch, the patch and the bill. Or start your own.</p>
+</div>
 
 <main class="layout" id="app">
   <aside class="side">
     <section class="card build" id="buildCard" hidden>
-      <h2>Build &amp; ship</h2>
+      <h2 data-n="00">Build &amp; ship</h2>
       <form id="buildForm">
         <label>Describe your app <span class="muted">(Nemotron writes and tests it)</span>
           <textarea id="idea" rows="3" placeholder="a meeting notes app that turns pasted notes into action items with owners and due dates" required></textarea>
@@ -90,7 +136,7 @@
       <div id="deployList"></div>
     </section>
     <section class="card">
-      <h2>New migration</h2>
+      <h2 data-n="01">New migration</h2>
       <form id="runForm">
         <label>Repository <span class="muted">(GitHub URL or local path)</span>
           <input id="source" name="source" placeholder="https://github.com/owner/repo" required autocomplete="off">
@@ -117,7 +163,7 @@
       </form>
     </section>
     <section class="card">
-      <h2>Free security audit</h2>
+      <h2 data-n="02">Free security audit</h2>
       <form id="auditForm">
         <label>Public GitHub repo <span class="muted">(no key, nothing executed)</span>
           <input id="auditSource" placeholder="https://github.com/owner/repo" required autocomplete="off">
@@ -127,11 +173,11 @@
       </form>
     </section>
     <section class="card">
-      <h2>Runs</h2>
+      <h2 data-n="03">Runs</h2>
       <ul id="runList" class="run-list"><li class="muted">Loading…</li></ul>
     </section>
     <section class="card how" id="how">
-      <h2>How it works</h2>
+      <h2 data-n="04">How it works</h2>
       <ol>
         <li><b>Scan</b> the repo's code for every OpenAI, Anthropic, LiteLLM, LangChain and Vercel AI SDK call, in Python and JS/TS. No code is executed.</li>
         <li><b>Investigate</b>: a <span class="chip m-super">Super</span> agent with search and read-file tools finds who calls each one and with what real inputs.</li>
@@ -223,11 +269,23 @@
   <div class="tab" data-pane="log" hidden><pre class="log" data-k="log"></pre></div>
 </template>
 
+<footer class="foot home-only">
+  <div class="foot-in">
+    <a class="brand" href="/"><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--text)"/><path d="M7 22h18M7 22c6 0 8-12 18-12" stroke="var(--bg)" stroke-width="3" fill="none" stroke-linecap="round"/></svg><span>Switchyard</span></a>
+    <a href="#app" data-scroll="#app">Runs</a><a href="#steps" data-scroll="#steps">Ecosystem</a><a href="#how" data-scroll="#how">How it works</a><a href="#tour">Judge tour</a>
+    <a href="https://github.com/ayushagarwalhere/switchyard" target="_blank" rel="noopener">GitHub</a>
+    <span class="grow"></span>
+  </div>
+  <p class="foot-note">NVIDIA Nemotron on Nebius Token Factory · MIT · UI styling adapted from <a href="https://github.com/Prashant-thakur77/Faultline" target="_blank" rel="noopener">Faultline</a> (Apache-2.0)</p>
+  <div class="foot-word" aria-hidden="true">Switchyard</div>
+</footer>
+
 <dialog id="caseDlg"><div id="caseBody"></div><form method="dialog"><button class="btn">Close</button></form></dialog>
 <script src="/tour.js"></script>
 <script src="/build.js" defer></script>
 <script src="/guide.js"></script>
 <script src="/app.js"></script>
+<script src="/fx.js" defer></script>
 <script type="module" src="/hero.js"></script>
 </body>
 </html>
