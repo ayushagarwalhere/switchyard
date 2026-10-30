@@ -8,7 +8,7 @@
 # Set DOMAIN=your.domain to use your own (its DNS A record must point at the instance). HTTP redirects to HTTPS.
 #
 # The demo serves recorded runs, the judge tour and the free repo audit, none of which need a key.
-# --with-key copies NEBIUS_API_KEY (from .env.local / .env) to the server so live runs work, behind
+# --with-key copies NEBIUS_API_KEY and TAVILY_API_KEY (from .env.local / .env) to the server so live runs work, behind
 # a random access code that the script prints (SWITCHYARD_RUN_CODE); spend per run is capped.
 # Needs: ssh, scp, and inbound rules for ports 22 (your IP), 80 and 443 (anywhere) on the instance.
 set -euo pipefail
@@ -44,7 +44,10 @@ if [ "$WITH_KEY" = "--with-key" ]; then
   KEYVAL="$(python -c 'from switchyard import config; print(config.api_key() or "")')"
   [ -n "$KEYVAL" ] || { echo "no Token Factory key found locally"; exit 1; }
   CODE="$(python -c 'import secrets; print(secrets.token_urlsafe(9))')"
-  printf 'NEBIUS_API_KEY=%s\nSWITCHYARD_RUN_CODE=%s\nSWITCHYARD_RUN_BUDGET=0.50\n' "$KEYVAL" "$CODE" | "${SSH[@]}" 'umask 077 && cat > ~/switchyard.env'
+  # Tavily too (if set locally), so live runs on the demo get real-world test inputs like local ones do
+  TAVVAL="$(python -c 'from switchyard import config; print(config.tavily_key() or "")')"
+  { printf 'NEBIUS_API_KEY=%s\nSWITCHYARD_RUN_CODE=%s\nSWITCHYARD_RUN_BUDGET=0.50\n' "$KEYVAL" "$CODE"
+    [ -n "$TAVVAL" ] && printf 'TAVILY_API_KEY=%s\n' "$TAVVAL"; true; } | "${SSH[@]}" 'umask 077 && cat > ~/switchyard.env'
   ENV_ARGS="$ENV_ARGS --env-file /home/ec2-user/switchyard.env"
   echo "== live runs enabled; access code: $CODE"
 fi
