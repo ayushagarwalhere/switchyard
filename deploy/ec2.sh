@@ -53,7 +53,15 @@ echo "== building and starting the container"
 "${SSH[@]}" "cd ~/switchyard && sudo docker build -q -t switchyard . >/dev/null && (sudo docker rm -f switchyard >/dev/null 2>&1 || true) && sudo docker run -d --restart unless-stopped --name switchyard -p 127.0.0.1:7860:7860 $ENV_ARGS switchyard >/dev/null"
 
 echo "== HTTPS for $DOMAIN (Caddy + Let's Encrypt)"
-"${SSH[@]}" "(sudo docker rm -f caddy >/dev/null 2>&1 || true) && sudo docker run -d --restart unless-stopped --name caddy --network host -v caddy_data:/data -v caddy_config:/config caddy:2 caddy reverse-proxy --from $DOMAIN --to 127.0.0.1:7860 >/dev/null"
+# the site on $DOMAIN; anything else on port 80 (e.g. the bare IP) redirects to it
+printf '%s {
+	reverse_proxy 127.0.0.1:7860
+}
+http:// {
+	redir https://%s{uri} permanent
+}
+' "$DOMAIN" "$DOMAIN" | "${SSH[@]}" 'cat > ~/Caddyfile'
+"${SSH[@]}" "(sudo docker rm -f caddy >/dev/null 2>&1 || true) && sudo docker run -d --restart unless-stopped --name caddy --network host -v /home/ec2-user/Caddyfile:/etc/caddy/Caddyfile:ro -v caddy_data:/data -v caddy_config:/config caddy:2 >/dev/null"
 
 echo "== waiting for it to answer (the first certificate takes up to a minute)"
 for i in $(seq 1 45); do
