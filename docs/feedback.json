@@ -190,8 +190,8 @@
    "max_s": 8.51
   }
  ],
- "cost_usd": 0.0274,
- "calls": 54,
+ "cost_usd": 0.0328,
+ "calls": 84,
  "recorded": {
   "runs": 12,
   "calls": 1956,
@@ -658,5 +658,247 @@
     "tail": "t, Cursor, and Claude Code are becoming daily companions for engineers worldwide"
    }
   ]
+ },
+ "thinking": [
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "setting": "no setting (default)",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 342,
+   "median_reasoning": 335,
+   "median_s": 3.23
+  },
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "setting": "`chat_template_kwargs.enable_thinking: false`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 6,
+   "median_reasoning": 0,
+   "median_s": 0.87
+  },
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "setting": "`reasoning_effort: \"none\"`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 6,
+   "median_reasoning": 0,
+   "median_s": 0.6
+  },
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "setting": "`reasoning_effort: \"low\"`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 337,
+   "median_reasoning": 330,
+   "median_s": 1.79
+  },
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "setting": "`/no_think` system message",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 472,
+   "median_reasoning": 465,
+   "median_s": 2.17
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "setting": "no setting (default)",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 97,
+   "median_reasoning": 89,
+   "median_s": 0.95
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "setting": "`chat_template_kwargs.enable_thinking: false`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 6,
+   "median_reasoning": 0,
+   "median_s": 0.47
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "setting": "`reasoning_effort: \"none\"`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 6,
+   "median_reasoning": 0,
+   "median_s": 0.47
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "setting": "`reasoning_effort: \"low\"`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 33,
+   "median_reasoning": 25,
+   "median_s": 0.55
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "setting": "`/no_think` system message",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 97,
+   "median_reasoning": 89,
+   "median_s": 0.75
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "setting": "no setting (default)",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 180,
+   "median_reasoning": 173,
+   "median_s": 0.73
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "setting": "`chat_template_kwargs.enable_thinking: false`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 6,
+   "median_reasoning": 0,
+   "median_s": 0.43
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "setting": "`reasoning_effort: \"none\"`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 6,
+   "median_reasoning": 0,
+   "median_s": 0.45
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "setting": "`reasoning_effort: \"low\"`",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 273,
+   "median_reasoning": 266,
+   "median_s": 1.16
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "setting": "`/no_think` system message",
+   "n": 2,
+   "errors": 0,
+   "correct": 2,
+   "median_tokens": 152,
+   "median_reasoning": 145,
+   "median_s": 0.72
+  }
+ ],
+ "by_task": {
+  "runs": [
+   "20261029-142754-6b1f",
+   "20261029-144005-a9f5",
+   "20261029-145534-3d40",
+   "20261029-150732-a954",
+   "20261030-070606-8ae0",
+   "20261030-095302-230b",
+   "20261030-095707-0376"
+  ],
+  "sites": 48,
+  "tasks": [
+   {
+    "task": "extraction",
+    "sites": 16,
+    "switched": 12
+   },
+   {
+    "task": "generation",
+    "sites": 14,
+    "switched": 5
+   },
+   {
+    "task": "classification",
+    "sites": 9,
+    "switched": 8
+   },
+   {
+    "task": "routing",
+    "sites": 3,
+    "switched": 3
+   },
+   {
+    "task": "summarization",
+    "sites": 3,
+    "switched": 3
+   },
+   {
+    "task": "qa",
+    "sites": 2,
+    "switched": 1
+   },
+   {
+    "task": "other",
+    "sites": 1,
+    "switched": 0
+   }
+  ],
+  "chosen": {
+   "lightning": 21,
+   "super": 8,
+   "ultra": 3
+  },
+  "never_switched": [
+   {
+    "function": "get_plan",
+    "task": "generation",
+    "runs": 3,
+    "kept": 3,
+    "best": 0.625
+   },
+   {
+    "function": "write_section",
+    "task": "generation",
+    "runs": 3,
+    "kept": 3,
+    "best": 0.75
+   }
+  ],
+  "kept_for_price": [
+   "review_post"
+  ],
+  "size_inversions": 27,
+  "lightning_over_super": 16
  }
 }

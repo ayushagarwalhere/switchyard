@@ -125,6 +125,22 @@ Tavily gives the test writer real-world inputs (articles, tickets, event announc
 
 The Tavily run's switched calls are 93.4% cheaper than GPT-4o (about $742.03 → $49.17 a month at 100k requests per call). `…-3d40` is a local run record and isn't in the published demo.
 
+### Full pages: Tavily Extract
+
+For calls that read documents (summarize an article, extract from an invoice, triage a ticket), `switchyard run --tavily-inputs full` goes one step further: Tavily Extract fetches the whole result pages, and Nemotron Ultra writes the tests from the full text, so a call is tested on inputs as long and messy as production traffic, not on search snippets. It is capped per run (`SWITCHYARD_TAVILY_EXTRACT_MAX`, default 6 credits) and cached on disk like searches.
+
+Recorded on Switchyard's Python sample app (3 document calls), one run with snippets and one with full pages:
+
+| Call | Snippets (`20261030-095302-230b`) | Full pages (`20261030-095707-0376`) |
+|---|---|---|
+| Test inputs | search excerpts | **9 whole pages**, about 5,900 characters each (2 Extract credits) |
+| `summarize` (articles) | Lightning + adapted prompt | **Super**: on full Wikipedia and CNN articles Lightning reached 75% |
+| `extract_invoice` | Lightning + adapted prompt | **kept**: on full invoice pages no Nemotron model reached the bar |
+| `triage` (tickets) | kept (only Ultra passed, and it costs more than GPT-4o-mini) | Lightning (88%) |
+| Token Factory cost | $0.14 | $0.10 |
+
+On whole documents, Switchyard asked more of the models it switched to: one summarization call moved to a stronger model, and an extraction call stayed on its original model until it can be shown to pass on real documents. Both runs are on the live demo under Runs.
+
 ## Other tools
 
 - **LangSmith** (optional): set `LANGSMITH_API_KEY` and every model call Switchyard makes is traced.

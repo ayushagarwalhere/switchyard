@@ -1,8 +1,8 @@
-# Feedback on Nebius Token Factory and the Nebius CLI
+# Feedback on Nebius Token Factory, NVIDIA Nemotron and the Nebius CLI
 
 From building [Switchyard](README.md), which moves an app's LLM calls to Nemotron on Token Factory after testing them. We ported three real projects (ai-cookbook, microsoft/generative-ai-for-beginners, WhyChain) and deployed with the Nebius CLI.
 
-**The API numbers below were measured live on 2026-10-30 03:37 UTC** by `switchyard doctor --feedback` (54 requests, about $0.03). Rerun it with your own key to check them: results vary between runs, so each figure is over 5 or more samples. The CLI findings can't be measured with an API key; they are what we observed, with the date and version.
+**The API numbers below were measured live on 2026-10-30 03:37 UTC** by `switchyard doctor --feedback` (84 requests, about $0.03). Rerun it with your own key to check them: results vary between runs, so most figures are over 5 or more samples (the thinking table, 2 per setting). The CLI findings can't be measured with an API key; they are what we observed, with the date and version.
 
 | # | Issue | Impact |
 |---|---|---|
@@ -12,6 +12,8 @@ From building [Switchyard](README.md), which moves an app's LLM calls to Nemotro
 | 4 | Structured answers sometimes burn the whole token budget unseen | Unfinished JSON, a crash in the caller, and paid tokens nobody sees |
 | 5 | No Nemotron embedding model; the only one is slow | RAG apps can't run on Nemotron alone |
 | 6 | Nebius CLI: confusing auth failures | Deploys blocked with errors that don't say what to do |
+| 7 | Nemotron thinks by default, and two common ways to turn it off don't work | Ports from GPT-4o pay for hidden reasoning on every short call |
+| 8 | Nemotron model feedback: where each size passes, and long-form writing | Which calls to move, and which size to try first |
 
 ## 1. `json_schema` field descriptions never reach the model
 
@@ -32,13 +34,13 @@ for extra in ("", "\nReply with JSON matching this schema:\n" + json.dumps(s)):
     print(bool(extra), r.choices[0].message.content)
 ```
 
-**Measured.** A response counts as correct when the name is a readable event name (not a label like `create_calendar_event`) and the date carries a time (`T14:00`).
+**Measured.** A response counts as correct when the name is a readable event name (not a label like `create_calendar_event`) and the date is only an ISO 8601 date-time, as the description asks (`2026-11-03T14:00:00`).
 
 | Model | Schema only in `response_format` | Schema also in the prompt | Example of a miss |
 |---|---|---|---|
-| `nvidia/Nemotron-3_5-Lightning` | 5/5 correct | 5/5 correct | `{"name": "Team Meeting", "date": "2026-11-03T14:00:00-05:00 (Tuesday, November 3, 2026 at ` |
-| `nvidia/nemotron-3-super-120b-a12b` | 0/5 correct | 5/5 correct | `{"name": "create_calendar_event", "date": "Tuesday, November 3, 2026 at 2:00 PM for 1 hour` |
-| `nvidia/Nemotron-3-Ultra-550b-a55b` | 5/5 correct | 5/5 correct | `{"name": "Team Meeting", "date": "2026-11-03T14:00:00-05:00"}` |
+| `nvidia/Nemotron-3_5-Lightning` | 5/5 correct | 5/5 correct | none |
+| `nvidia/nemotron-3-super-120b-a12b` | 0/5 correct | 5/5 correct | `{"name": "create_calendar_event", "date": "Tuesday, November 3, 2026 at 2:00 PM for 1 hour"}` |
+| `nvidia/Nemotron-3-Ultra-550b-a55b` | 5/5 correct | 5/5 correct | none |
 
 **Impact.** Every team porting `.parse()` code to Super hits this silently: no error, just wrong values that pass schema validation and break the code downstream (a calendar API rejects a date without a time).
 
@@ -109,7 +111,7 @@ In this run Lightning's median was 1.12 s against Super's 0.62 s (Lightning slow
 
 ## 4. Structured answers sometimes burn the whole token budget on output nobody sees (intermittent)
 
-**What happened.** In our recorded runs, 47 of 1,782 `json_schema` answers used the whole output budget (4,096 or 8,192 tokens, all billed) but contained little or no visible text: unfinished JSON, or nothing at all. 4,096 tokens of text is roughly 15,000 characters. So most of the budget went on output the caller never receives, most likely whitespace inside the JSON, which a schema grammar allows without limit. The caller's `json.loads` then fails.
+**What happened.** In our recorded runs, 47 of 1,782 `json_schema` answers used the whole output budget (4,096 or 8,192 tokens, all billed) and returned unfinished JSON. Most held far less text than the tokens billed: the median was 164 visible characters, where 4,096 tokens of text is roughly 15,000, and some were empty. So most of the budget went on output the caller never receives, most likely whitespace inside the JSON, which a schema grammar allows without limit. The caller's `json.loads` then fails.
 
 | Model | Structured answers recorded | Used the whole budget, JSON unfinished | Visible characters in those | Runs |
 |---|---|---|---|---|
@@ -185,6 +187,72 @@ nebius ai endpoint list          # opens a browser login despite the profile
 **Impact.** We didn't reach a live Serverless endpoint: every error pointed at auth, while the cause was billing. Switchyard's demo runs on EC2 instead.
 
 **Suggested fix.** Say "this tenant is suspended: activate billing at …" in place of `unknown subject`; make every command use the active profile's token; default `endpoint create` to CPU or ask; print the `PATH` step at the end of the installer.
+
+## 7. Nemotron thinks by default, and two common ways to turn it off don't work
+
+**What happened.** With no setting, every Nemotron model on Token Factory reasons before answering, and the reasoning is billed as output tokens. Someone porting a GPT-4o call changes `base_url` and `model` and pays for hidden reasoning on every short call. We measured a one-line arithmetic question with each way of turning it off:
+
+| Model | Setting | Output tokens billed (median) | Of which reasoning | Seconds (median) | Correct |
+|---|---|---|---|---|---|
+| `nvidia/Nemotron-3_5-Lightning` | no setting (default) | 342 | 335 | 3.23 s | 2/2 |
+| `nvidia/Nemotron-3_5-Lightning` | `chat_template_kwargs.enable_thinking: false` | 6 | 0 | 0.87 s | 2/2 |
+| `nvidia/Nemotron-3_5-Lightning` | `reasoning_effort: "none"` | 6 | 0 | 0.6 s | 2/2 |
+| `nvidia/Nemotron-3_5-Lightning` | `reasoning_effort: "low"` | 337 | 330 | 1.79 s | 2/2 |
+| `nvidia/Nemotron-3_5-Lightning` | `/no_think` system message | 472 | 465 | 2.17 s | 2/2 |
+| `nvidia/nemotron-3-super-120b-a12b` | no setting (default) | 97 | 89 | 0.95 s | 2/2 |
+| `nvidia/nemotron-3-super-120b-a12b` | `chat_template_kwargs.enable_thinking: false` | 6 | 0 | 0.47 s | 2/2 |
+| `nvidia/nemotron-3-super-120b-a12b` | `reasoning_effort: "none"` | 6 | 0 | 0.47 s | 2/2 |
+| `nvidia/nemotron-3-super-120b-a12b` | `reasoning_effort: "low"` | 33 | 25 | 0.55 s | 2/2 |
+| `nvidia/nemotron-3-super-120b-a12b` | `/no_think` system message | 97 | 89 | 0.75 s | 2/2 |
+| `nvidia/Nemotron-3-Ultra-550b-a55b` | no setting (default) | 180 | 173 | 0.73 s | 2/2 |
+| `nvidia/Nemotron-3-Ultra-550b-a55b` | `chat_template_kwargs.enable_thinking: false` | 6 | 0 | 0.43 s | 2/2 |
+| `nvidia/Nemotron-3-Ultra-550b-a55b` | `reasoning_effort: "none"` | 6 | 0 | 0.45 s | 2/2 |
+| `nvidia/Nemotron-3-Ultra-550b-a55b` | `reasoning_effort: "low"` | 273 | 266 | 1.16 s | 2/2 |
+| `nvidia/Nemotron-3-Ultra-550b-a55b` | `/no_think` system message | 152 | 145 | 0.72 s | 2/2 |
+
+On Lightning, the default billed 342 output tokens for an answer that needs 6. A `/no_think` system message billed 472, so it is ignored.
+
+`reasoning_effort: "low"` did not reduce reasoning: Lightning 337 vs 342, Ultra 273 vs 180 output tokens (low vs default). Only `"none"` and `enable_thinking: false` turn it off.
+
+The reasoning text itself comes back cleanly in `reasoning_content` on all three models, separate from the answer.
+
+**Repro**
+```python
+for extra in ({}, {"reasoning_effort": "low"}, {"reasoning_effort": "none"}):
+    r = tf.chat.completions.create(model="nvidia/Nemotron-3_5-Lightning", max_tokens=1500, temperature=0, **extra,
+        messages=[{"role": "user", "content": "A train leaves at 14:35 and the trip takes 2 h 50 min. What time does it arrive? Answer with the time only."}])
+    print(extra, r.usage.completion_tokens, r.usage.completion_tokens_details.reasoning_tokens)
+```
+
+**Impact.** On short classification, routing and extraction calls (the calls most worth moving) the hidden reasoning can cost more than the answer and adds seconds of latency. A cost comparison against GPT-4o made with the default setting understates Nemotron's advantage; one made with `/no_think` or `reasoning_effort: "low"` is wrong without warning.
+
+**Suggested fix.** Document `reasoning_effort: "none"` as the standard OpenAI-compatible switch on each model page; make `"low"` actually reduce reasoning (or reject it); and either honour `/no_think` or say it isn't supported. Switchyard sets the switch per call: off for candidates under test, on for the test writer.
+
+## 8. Nemotron model feedback: where each size passes, and long-form writing
+
+**What we saw.** Across 7 recorded runs made with our final grader (48 call sites, each tested on Lightning, Super and Ultra with about 8 tests, an 85% bar):
+
+| Kind of call | Call sites | Moved to a Nemotron model |
+|---|---|---|
+| extraction | 16 | 12 |
+| generation | 14 | 5 |
+| classification | 9 | 8 |
+| routing | 3 | 3 |
+| summarization | 3 | 3 |
+| qa | 2 | 1 |
+| other | 1 | 0 |
+
+Of the 32 calls moved, the cheapest passing model was Lightning for 21, Super for 8 and Ultra for 3.
+
+**Never passed.** `get_plan` (best 62%), `write_section` (best 75%) were kept in every run they appeared in, because no Nemotron size reached the bar. They are long-form writing (a blog plan with section word counts, a full section in a given style). The tests check structure, length and tone together, and no Nemotron size met all three reliably.
+
+By contrast, `review_post` passed on a larger Nemotron in at least one run but stayed on GPT-4o-mini because that size costs more: the price rule, not a model failure.
+
+**Bigger isn't reliably better.** On 27 of 48 call sites a larger Nemotron scored lower than a smaller one; Lightning beat Super on 16. So "start small, go up if it fails" misses calls where Ultra or Super would pass, and "use the biggest" overpays. Testing all three per call is what made the switches safe.
+
+**Impact.** Short structured calls (classification, routing, extraction) are the easy wins and go to the smallest model. Long-form generation is where teams will be disappointed if they switch without tests.
+
+**Suggested fix.** Publish per-task guidance for the Nemotron family (which size for which kind of call), and evaluate long-form instruction following (length, structure and style together) for the next release.
 
 ## What worked well
 

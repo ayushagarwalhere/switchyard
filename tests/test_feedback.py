@@ -43,3 +43,22 @@ def test_event_check_needs_a_readable_name_and_a_time():
     bad = feedback._event_ok('{"name": "create_calendar_event", "date": "2026-11-03"}')
     assert not bad["name_ok"] and not bad["time_ok"]
     assert not feedback._event_ok("not json")["valid"]
+
+
+def test_nemotron_sections_render_when_measured():
+    d = _data()
+    d["thinking"] = [
+        {"model": "lightning", "id": "nvidia/Nemotron-3_5-Lightning", "setting": s, "n": 1, "errors": 0, "correct": 1,
+         "median_tokens": t, "median_reasoning": r, "median_s": 1.0}
+        for s, t, r in [("no setting (default)", 212, 205), ("`chat_template_kwargs.enable_thinking: false`", 6, 0),
+                        ('`reasoning_effort: "none"`', 6, 0), ('`reasoning_effort: "low"`', 307, 300),
+                        ("`/no_think` system message", 467, 460)]]
+    d["by_task"] = {"runs": ["a", "b"], "sites": 10, "tasks": [{"task": "classification", "sites": 4, "switched": 4},
+                                                              {"task": "generation", "sites": 6, "switched": 1}],
+                    "chosen": {"lightning": 4, "super": 1}, "size_inversions": 5, "lightning_over_super": 3,
+                    "never_switched": [{"function": "get_plan", "task": "generation", "runs": 2, "kept": 2, "best": 0.75}]}
+    md = feedback.markdown(d)
+    assert "## 7. Nemotron thinks by default" in md and "## 8. Nemotron model feedback" in md
+    assert "billed 212 output tokens for an answer that needs 6" in md and "Lightning 307 vs 212" in md
+    assert "so it is ignored" in md and "`get_plan` (best 75%)" in md and "On 5 of 10 call sites" in md
+    assert md.count("**Suggested fix.**") == 8

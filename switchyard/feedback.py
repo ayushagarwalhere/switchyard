@@ -7,6 +7,9 @@ Each finding is measured again on every run, so anyone with a Token Factory key 
   schema      json_schema with and without the schema copied into the prompt (field descriptions)
   runaway     a long structured plan with a 4,096-token cap: how often the JSON is cut off
   embeddings  which embedding models exist, and single-text latency of the only one
+  thinking    a one-line question with each way of turning Nemotron's thinking off: tokens billed, seconds
+
+From the recorded runs (no requests): which kinds of calls each Nemotron size passed, cut-off structured answers.
 
 The Nebius CLI findings can't be measured with an API key, so they are written as observed,
 with the date and CLI version. A full run costs a few cents.
@@ -43,6 +46,17 @@ PLAN_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["ti
 PLAN_USER = ("Plan a detailed long-form blog post about migrating a production app from GPT-4o to open models. "
              "Cover every section a senior engineer would expect, with specific key points for each.")
 CAP = 4096
+
+THINK_Q = "A train leaves at 14:35 and the trip takes 2 h 50 min. What time does it arrive? Answer with the time only."
+THINK_SETTINGS = [  # (label, extra request fields, system message)
+    ("no setting (default)", {}, None),
+    ("`chat_template_kwargs.enable_thinking: false`", {"extra_body": NO_THINK}, None),
+    ("`reasoning_effort: \"none\"`", {"reasoning_effort": "none"}, None),
+    ("`reasoning_effort: \"low\"`", {"reasoning_effort": "low"}, None),
+    ("`/no_think` system message", {}, "/no_think"),
+]
+# runs before this one used an earlier grader with bugs we since fixed, so they say more about the grader than the model
+FINAL_GRADER_SINCE = "20261029-142754"
 
 LATENCY_MSG = [{"role": "user", "content": "In two sentences, explain what a database index is."}]
 EMBED_TEXT = "Switchyard moves an app's LLM calls to Nemotron after testing them."
@@ -189,6 +203,79 @@ def measure_embeddings(client: OpenAI, models: list[str], n: int) -> list[dict]:
     return rows
 
 
+def measure_thinking(client: OpenAI, meter: _Meter, n: int) -> list[dict]:
+    rows = []
+    for m in config.CANDIDATES:
+        for label, extra, system in THINK_SETTINGS:
+            toks, reas, secs, ok, errs = [], [], [], 0, 0
+            msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": THINK_Q}]
+            for _ in range(n):
+                t0 = time.perf_counter()
+                try:
+                    r = client.chat.completions.create(model=m.id, messages=msgs, max_tokens=1500, temperature=0, **extra)
+                except Exception:  # noqa: BLE001 - a rejected setting is a finding, not a crash
+                    errs += 1
+                    continue
+                secs.append(time.perf_counter() - t0)
+                meter.add(m.id, r.usage)
+                toks.append(r.usage.completion_tokens if r.usage else 0)
+                det = getattr(r.usage, "completion_tokens_details", None)
+                reas.append(getattr(det, "reasoning_tokens", None) or 0)
+                ok += "17:25" in (r.choices[0].message.content or "")
+            rows.append({"model": m.key, "id": m.id, "setting": label, "n": len(toks), "errors": errs, "correct": ok,
+                         "median_tokens": int(statistics.median(toks)) if toks else None,
+                         "median_reasoning": int(statistics.median(reas)) if reas else None,
+                         "median_s": _pct(secs, 0.5) if secs else None})
+    return rows
+
+
+def by_task(runs_dir: str = "runs") -> dict:
+    """Per kind of call: how many call sites a Nemotron model passed, which size won, and what was never passed."""
+    from pathlib import Path
+    seen, tasks, chosen, per_fn = set(), {}, {}, {}
+    inversions = lightning_over_super = sites = 0
+    for f in sorted(Path(runs_dir).glob("**/run.json")):
+        rid = f.parent.name
+        if rid in seen or rid < FINAL_GRADER_SINCE:
+            continue
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not d.get("sites"):
+            continue
+        seen.add(rid)
+        for s in d["sites"]:
+            t = ((s.get("analysis") or {}).get("task_type") or "other").lower()
+            site = s.get("site") or {}
+            fn = site.get("function") or Path(site.get("file") or "?").name
+            ev = s.get("evals") or {}
+            pr = {k: ev[k].get("pass_rate") or 0.0 for k in config.MODELS if k in ev}
+            dec = s.get("decision") or {}
+            row = tasks.setdefault(t, {"task": t, "sites": 0, "switched": 0})
+            row["sites"] += 1
+            sites += 1
+            if dec.get("action") == "migrate":
+                row["switched"] += 1
+                mk = dec.get("model") or dec.get("choice") or "?"
+                chosen[mk] = chosen.get(mk, 0) + 1
+            fr = per_fn.setdefault(fn, {"function": fn, "task": t, "runs": 0, "kept": 0, "best": 0.0})
+            fr["runs"] += 1
+            fr["kept"] += dec.get("action") != "migrate"
+            fr["best"] = max(fr["best"], max(pr.values()) if pr else 0.0)
+            if len(pr) == 3:
+                inversions += pr["super"] < pr["lightning"] or pr["ultra"] < pr["super"]
+                lightning_over_super += pr["lightning"] > pr["super"]
+    # kept in every run for quality: no Nemotron size reached the bar (not kept only because the passing size cost more)
+    never = sorted((r for r in per_fn.values() if r["runs"] >= 2 and r["kept"] == r["runs"] and r["best"] < 0.85),
+                   key=lambda r: r["function"])
+    return {"runs": sorted(seen), "sites": sites, "tasks": sorted(tasks.values(), key=lambda r: -r["sites"]),
+            "chosen": chosen, "never_switched": never,
+            "kept_for_price": sorted(r["function"] for r in per_fn.values()
+                                     if r["runs"] >= 2 and r["kept"] == r["runs"] and r["best"] >= 0.85), "size_inversions": inversions,
+            "lightning_over_super": lightning_over_super}
+
+
 def _expects_json(site: dict) -> bool:
     p = site.get("params") or {}
     rf = p.get("response_format")
@@ -239,7 +326,8 @@ def recorded(runs_dir: str = "runs") -> dict:
 def run(n: int = 5, skip: tuple[str, ...] = (), log=print, runs_dir: str = "runs") -> dict:
     client, meter = _client(), _Meter()
     out: dict = {"measured_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-                 "base_url": config.DEFAULT_BASE_URL, "samples": n, "recorded": recorded(runs_dir)}
+                 "base_url": config.DEFAULT_BASE_URL, "samples": n, "recorded": recorded(runs_dir),
+                 "by_task": by_task(runs_dir)}
     log("model IDs ...")
     out["ids"] = measure_ids(client)
     if "latency" not in skip:
@@ -255,6 +343,10 @@ def run(n: int = 5, skip: tuple[str, ...] = (), log=print, runs_dir: str = "runs
     if "embeddings" not in skip:
         log(f"embeddings ({2 * n} single-text requests per model) ...")
         out["embeddings"] = measure_embeddings(client, out["ids"]["embedding"], 2 * n)
+    if "thinking" not in skip:
+        k = max(1, n // 2)
+        log(f"thinking switch ({k} per model and setting) ...")
+        out["thinking"] = measure_thinking(client, meter, k)
     out["cost_usd"], out["calls"] = round(meter.cost, 4), meter.calls
     return out
 
@@ -268,14 +360,14 @@ def _lat(rows, key):
 def markdown(m: dict) -> str:
     L: list[str] = []
     a = L.append
-    a("# Feedback on Nebius Token Factory and the Nebius CLI")
+    a("# Feedback on Nebius Token Factory, NVIDIA Nemotron and the Nebius CLI")
     a("")
     a("From building [Switchyard](README.md), which moves an app's LLM calls to Nemotron on Token Factory after testing "
       "them. We ported three real projects (ai-cookbook, microsoft/generative-ai-for-beginners, WhyChain) and deployed with the Nebius CLI.")
     a("")
     a(f"**The API numbers below were measured live on {m['measured_at']}** by `switchyard doctor --feedback` "
       f"({m['calls']} requests, about ${m['cost_usd']:.2f}). Rerun it with your own key to check them: results vary "
-      f"between runs, so each figure is over {m['samples']} or more samples. The CLI findings can't be measured with an API key; "
+      f"between runs, so most figures are over {m['samples']} or more samples (the thinking table, 2 per setting). The CLI findings can't be measured with an API key; "
       "they are what we observed, with the date and version.")
     a("")
     a("| # | Issue | Impact |")
@@ -286,6 +378,12 @@ def markdown(m: dict) -> str:
             ("Structured answers sometimes burn the whole token budget unseen", "Unfinished JSON, a crash in the caller, and paid tokens nobody sees"),
             ("No Nemotron embedding model; the only one is slow", "RAG apps can't run on Nemotron alone"),
             ("Nebius CLI: confusing auth failures", "Deploys blocked with errors that don't say what to do")]
+    if m.get("thinking"):
+        rows.append(("Nemotron thinks by default, and two common ways to turn it off don't work",
+                     "Ports from GPT-4o pay for hidden reasoning on every short call"))
+    if (m.get("by_task") or {}).get("tasks"):
+        rows.append(("Nemotron model feedback: where each size passes, and long-form writing",
+                     "Which calls to move, and which size to try first"))
     for i, (t, imp) in enumerate(rows, 1):
         a(f"| {i} | {t} | {imp} |")
     a("")
@@ -541,6 +639,11 @@ def markdown(m: dict) -> str:
       "command use the active profile's token; default `endpoint create` to CPU or ask; print the `PATH` step at the end of the installer.")
     a("")
 
+    if m.get("thinking"):
+        _thinking_section(a, m["thinking"])
+    if (m.get("by_task") or {}).get("tasks"):
+        _task_section(a, m["by_task"], 8 if m.get("thinking") else 7)
+
     a("## What worked well")
     a("")
     a("- **One OpenAI-compatible endpoint for the whole Nemotron family.** A port is a `base_url` and `model` change, so patches stay small.")
@@ -552,3 +655,97 @@ def markdown(m: dict) -> str:
     a("---")
     a("Generated by `switchyard doctor --feedback --out FEEDBACK.md`. Raw measurements: `docs/feedback.json`.")
     return "\n".join(L) + "\n"
+
+
+def _thinking_section(a, rows: list[dict]) -> None:
+    a("## 7. Nemotron thinks by default, and two common ways to turn it off don't work")
+    a("")
+    a("**What happened.** With no setting, every Nemotron model on Token Factory reasons before answering, and the "
+      "reasoning is billed as output tokens. Someone porting a GPT-4o call changes `base_url` and `model` and pays for "
+      "hidden reasoning on every short call. We measured a one-line arithmetic question with each way of turning it off:")
+    a("")
+    a("| Model | Setting | Output tokens billed (median) | Of which reasoning | Seconds (median) | Correct |")
+    a("|---|---|---|---|---|---|")
+    for r in rows:
+        if r["n"] == 0:
+            a(f"| `{r['id']}` | {r['setting']} | rejected | | | |")
+            continue
+        a(f"| `{r['id']}` | {r['setting']} | {r['median_tokens']} | {r['median_reasoning']} | {r['median_s']} s | "
+          f"{r['correct']}/{r['n']} |")
+    a("")
+    by = {(r["model"], r["setting"]): r for r in rows}
+    def tok(model, prefix):
+        r = next((v for (mk, st), v in by.items() if mk == model and st.startswith(prefix)), None)
+        return r["median_tokens"] if r and r["n"] else None
+    d, off, low, nt = (tok("lightning", x) for x in ("no setting", "`chat_template", "`reasoning_effort: \"low", "`/no_think"))
+    if d and off:
+        a(f"On Lightning, the default billed {d} output tokens for an answer that needs {off}. "
+          + (f"A `/no_think` system message billed {nt}, so it is ignored." if nt and nt >= off * 3 else ""))
+        a("")
+    lows = []
+    for mk in ("lightning", "super", "ultra"):
+        dd, ll = tok(mk, "no setting"), tok(mk, "`reasoning_effort: \"low")
+        if dd and ll and ll >= 0.9 * dd:
+            lows.append(f"{mk.capitalize()} {ll} vs {dd}")
+    if lows:
+        a("`reasoning_effort: \"low\"` did not reduce reasoning: " + ", ".join(lows) + " output tokens (low vs default). "
+          "Only `\"none\"` and `enable_thinking: false` turn it off.")
+        a("")
+    a("The reasoning text itself comes back cleanly in `reasoning_content` on all three models, separate from the answer.")
+    a("")
+    a("**Repro**")
+    a("```python")
+    a("for extra in ({}, {\"reasoning_effort\": \"low\"}, {\"reasoning_effort\": \"none\"}):")
+    a("    r = tf.chat.completions.create(model=\"nvidia/Nemotron-3_5-Lightning\", max_tokens=1500, temperature=0, **extra,")
+    a("        messages=[{\"role\": \"user\", \"content\": \"A train leaves at 14:35 and the trip takes 2 h 50 min. What time does it arrive? Answer with the time only.\"}])")
+    a("    print(extra, r.usage.completion_tokens, r.usage.completion_tokens_details.reasoning_tokens)")
+    a("```")
+    a("")
+    a("**Impact.** On short classification, routing and extraction calls (the calls most worth moving) the hidden "
+      "reasoning can cost more than the answer and adds seconds of latency. A cost comparison against GPT-4o made with the "
+      "default setting understates Nemotron's advantage; one made with `/no_think` or `reasoning_effort: \"low\"` is wrong without warning.")
+    a("")
+    a("**Suggested fix.** Document `reasoning_effort: \"none\"` as the standard OpenAI-compatible switch on each model page; "
+      "make `\"low\"` actually reduce reasoning (or reject it); and either honour `/no_think` or say it isn't supported. "
+      "Switchyard sets the switch per call: off for candidates under test, on for the test writer.")
+    a("")
+
+
+def _task_section(a, bt: dict, num: int) -> None:
+    a(f"## {num}. Nemotron model feedback: where each size passes, and long-form writing")
+    a("")
+    a(f"**What we saw.** Across {len(bt['runs'])} recorded runs made with our final grader ({bt['sites']} call sites, "
+      "each tested on Lightning, Super and Ultra with about 8 tests, an 85% bar):")
+    a("")
+    a("| Kind of call | Call sites | Moved to a Nemotron model |")
+    a("|---|---|---|")
+    for r in bt["tasks"]:
+        a(f"| {r['task']} | {r['sites']} | {r['switched']} |")
+    a("")
+    ch = bt.get("chosen") or {}
+    total = sum(ch.values())
+    if total:
+        a(f"Of the {total} calls moved, the cheapest passing model was Lightning for {ch.get('lightning', 0)}, Super for "
+          f"{ch.get('super', 0)} and Ultra for {ch.get('ultra', 0)}.")
+        a("")
+    if bt.get("never_switched"):
+        names = ", ".join(f"`{r['function']}` (best {r['best']:.0%})" for r in bt["never_switched"])
+        a(f"**Never passed.** {names} were kept in every run they appeared in, because no Nemotron size reached the bar. "
+          "They are long-form writing (a blog plan with section word counts, a full section in a given style). The tests check structure, "
+          "length and tone together, and no Nemotron size met all three reliably.")
+        if bt.get("kept_for_price"):
+            a("")
+            a("By contrast, " + ", ".join(f"`{f}`" for f in bt["kept_for_price"]) + " passed on a larger Nemotron in at least "
+              "one run but stayed on GPT-4o-mini because that size costs more: the price rule, not a model failure.")
+        a("")
+    a(f"**Bigger isn't reliably better.** On {bt['size_inversions']} of {bt['sites']} call sites a larger Nemotron scored "
+      f"lower than a smaller one; Lightning beat Super on {bt['lightning_over_super']}. So \"start small, go up if it fails\" "
+      "misses calls where Ultra or Super would pass, and \"use the biggest\" overpays. Testing all three per call is what made "
+      "the switches safe.")
+    a("")
+    a("**Impact.** Short structured calls (classification, routing, extraction) are the easy wins and go to the smallest model. "
+      "Long-form generation is where teams will be disappointed if they switch without tests.")
+    a("")
+    a("**Suggested fix.** Publish per-task guidance for the Nemotron family (which size for which kind of call), and evaluate "
+      "long-form instruction following (length, structure and style together) for the next release.")
+    a("")

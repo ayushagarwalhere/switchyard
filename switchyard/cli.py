@@ -196,6 +196,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--budget", type=float, default=2.0, help="max Token Factory spend in USD (default 2)")
     r.add_argument("--max-sites", type=int, default=12)
     r.add_argument("--no-tavily", action="store_true", help="don't fetch real-world inputs with Tavily")
+    r.add_argument("--tavily-inputs", choices=("snippets", "full"),
+                   help="snippets (default): search excerpts feed the test writer; full: calls that read documents "
+                        "get whole pages via Tavily Extract (SWITCHYARD_TAVILY_INPUTS)")
     r.add_argument("--include", action="append", default=[], metavar="GLOB", help="only scan matching files (repeatable)")
     r.add_argument("--exclude", action="append", default=[], metavar="GLOB", help="skip matching files (repeatable)")
     r.add_argument("--traces", metavar="JSONL", help="recorded production calls to use as reference answers")
@@ -558,7 +561,7 @@ def _run(args) -> int:
             return 0
 
     run = Run(src, tests=args.tests, target=args.target, budget=args.budget,
-              use_tavily=not args.no_tavily, max_sites=args.max_sites, emit=_print_event,
+              use_tavily=not args.no_tavily, tavily_inputs=args.tavily_inputs, max_sites=args.max_sites, emit=_print_event,
               include=args.include, exclude=args.exclude, traces_path=args.traces, run_tests=args.run_tests,
               execute=False if args.no_exec else None, audit=not args.no_audit)
     state = run.run()
