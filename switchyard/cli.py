@@ -145,6 +145,10 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--force", action="store_true", help="deploy even with blocking security findings")
     dp.add_argument("--local", action="store_true",
                     help="run the same image, env and health check in local Docker instead of Nebius (free)")
+    dp.add_argument("--no-key", action="store_true",
+                    help="don't give the app your Token Factory key (e.g. a public demo that only shows recorded data)")
+    dp.add_argument("--record", metavar="DIR",
+                    help="also write a shareable record (URL, image, timings; no token or local paths) to DIR")
 
     prr = sub.add_parser("pr-review", help="review a pull request's AI code (static, free): cost, Nemotron fit, security",
                          add_help=False)
@@ -834,11 +838,17 @@ def _deploy(args) -> int:
                 print(f"deleted {deploy.delete(args.app)} (it no longer bills)")
             return 0
         kw = {k: v for k, v in (("platform", args.platform), ("preset", args.preset)) if v}
-        res = deploy.Deployer(args.target, args.name, private=args.private, force=args.force, local=args.local, **kw).run()
+        res = deploy.Deployer(args.target, args.name, private=args.private, force=args.force, local=args.local,
+                              include_key=not args.no_key, **kw).run()
     except deploy.DeployError as e:
         print(f"deploy: {e}", file=sys.stderr)
         return 1
     print(f"Live: {res['url']}  ({'healthy' if res['healthy'] else 'not answering yet'})")
+    tm = res.get("timings") or {}
+    if tm:
+        print("Timings: " + ", ".join(f"{k[:-2].replace('_', ' ')} {v:.0f}s" for k, v in tm.items()))
+    if args.record:
+        print(f"Record: {deploy.write_record(res, args.record)}")
     if res.get("local"):
         print(f"Running in local Docker as {res['endpoint']}; stop it with `switchyard deploy delete {res['name']}`")
     else:

@@ -24,6 +24,8 @@ STATE = config.HOME / "deployments.json"
 DEFAULT_PLATFORM = os.environ.get("SWITCHYARD_NEBIUS_PLATFORM", "cpu-d3")
 # a CPU platform (without --platform Nebius picks a GPU one); 2 vCPU / 8 GB is plenty for a web app
 DEFAULT_PRESET = os.environ.get("SWITCHYARD_NEBIUS_PRESET", "2vcpu-8gb")
+# a web app needs a few GB of disk, not the 250Gi Nebius gives an endpoint by default (it bills by size)
+DEFAULT_DISK = os.environ.get("SWITCHYARD_NEBIUS_DISK", "")
 
 
 class DeployError(RuntimeError):
@@ -134,11 +136,11 @@ APP_ENV = re.compile(r"LLM_MODEL_[A-Z0-9_]+|TOKEN_FACTORY_BASE_URL|SWITCHYARD_PU
                      r"|SWITCHYARD_RUN_BUDGET|SWITCHYARD_EXEC")
 
 
-def app_env(root: Path) -> dict[str, str]:
-    """Env vars the deployed app gets: the Token Factory key (for its AI features), LLM_MODEL_* overrides,
-    Switchyard's public-demo settings and a Tavily key, when the app's .env / .env.local set them."""
+def app_env(root: Path, include_key: bool = True) -> dict[str, str]:
+    """Env vars the deployed app gets: the Token Factory key (for its AI features; `--no-key` leaves it out),
+    LLM_MODEL_* overrides, Switchyard's public-demo settings and a Tavily key, when the app's .env / .env.local set them."""
     env = {}
-    key = config.api_key()
+    key = config.api_key() if include_key else None
     if key:
         env["NEBIUS_API_KEY"] = key
     for f in (root / ".env", root / ".env.local"):          # .env.local wins
@@ -153,6 +155,36 @@ def app_env(root: Path) -> dict[str, str]:
                 elif APP_ENV.fullmatch(name):
                     env[name] = value
     return env
+
+
+def dockerignored(root: Path):
+    """A matcher for paths (relative, '/'-separated) that .dockerignore keeps out of the build context.
+    Follows Docker's rules closely enough for the deploy check: last match wins, '!' re-includes, and a
+    pattern that matches a folder covers everything under it."""
+    import fnmatch
+    rules = []
+    f = root / ".dockerignore"
+    if f.exists():
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                neg = line.startswith("!")
+                rules.append((neg, line.lstrip("!").strip("/").removeprefix("./")))
+
+    def match(pat: str, path: str) -> bool:
+        parts = path.split("/")
+        prefixes = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+        pats = [pat] + ([pat[3:]] if pat.startswith("**/") else [])
+        return any(fnmatch.fnmatchcase(pre, p) for pre in prefixes for p in pats)
+
+    def ignored(path: str) -> bool:
+        path = str(path).replace("\\", "/").strip("/")
+        out = False
+        for neg, pat in rules:
+            if match(pat, path):
+                out = not neg
+        return out
+    return ignored
 
 
 def _slug(s: str) -> str:
@@ -178,13 +210,23 @@ def save_state(st: dict) -> None:
 class Deployer:
     def __init__(self, path: str | Path = ".", name: str | None = None, platform: str = DEFAULT_PLATFORM,
                  preset: str = DEFAULT_PRESET, private: bool = False, force: bool = False, emit=print,
-                 shell: Shell | None = None, wait: float = 600, http=None, local: bool = False):
+                 shell: Shell | None = None, wait: float = 600, http=None, local: bool = False,
+                 include_key: bool = True):
         self.root = Path(path).resolve()
         self.name = _slug(name or self.root.name)
         self.platform, self.preset, self.private, self.force = platform, preset, private, force
         self.emit, self.sh, self.wait = emit, shell or Shell(), wait
         self.http = http or _http_get
         self.local = local
+        self.include_key = include_key
+        self.timings: dict[str, float] = {}
+
+    def _timed(self, step: str, fn, *a, **kw):
+        t = time.monotonic()
+        try:
+            return fn(*a, **kw)
+        finally:
+            self.timings[step] = round(self.timings.get(step, 0) + time.monotonic() - t, 1)
 
     def registry(self, st: dict) -> dict:
         if st.get("registry"):
@@ -208,8 +250,14 @@ class Deployer:
 
     def run(self) -> dict:
         from . import secure
+        self.timings, t0 = {}, time.monotonic()
         self.emit(f"Checking {self.root.name} before it ships…")
         sec = secure.run(self.root)
+        ignored = dockerignored(self.root)
+        left_out = [f for f in sec["blocking"] if ignored(f["file"])]
+        sec["blocking"] = [f for f in sec["blocking"] if not ignored(f["file"])]
+        if left_out:
+            self.emit(f"  {len(left_out)} finding(s) in files the image leaves out (.dockerignore), not blocking")
         if sec["blocking"] and not self.force:
             lines = "\n".join(f"  {f['severity']} {f['rule']} {f['file']}:{f['line']} {f['title']}: {f['detail']}"
                               for f in sec["blocking"][:8])
@@ -228,36 +276,43 @@ class Deployer:
         tag = time.strftime("%Y%m%d-%H%M%S")
         image = f"{reg['host']}/{reg['path']}/{self.name}:{tag}"
         self.emit(f"Building {image} (linux/amd64)…")
-        self.sh.run(["docker", "build", "--platform", "linux/amd64", "-t", image, "."], cwd=str(self.root))
+        self._timed("build_s", self.sh.run, ["docker", "build", "--platform", "linux/amd64", "-t", image, "."],
+                    cwd=str(self.root))
         self.emit("Pushing to Nebius Container Registry…")
         token = self.sh.nebius("iam", "get-access-token").strip()
         self.sh.run(["docker", "login", reg["host"], "--username", "iam", "--password-stdin"], input=token)
-        self.sh.run(["docker", "push", image])
+        self._timed("push_s", self.sh.run, ["docker", "push", image])
         old = st["apps"].get(self.name)
         ep_name = f"{self.name}-{tag}"
         args = ["ai", "endpoint", "create", "--name", ep_name, "--image", image, "--platform", self.platform,
                 "--preset", self.preset, "--container-port", str(info["port"]), "--format", "json"]
+        if DEFAULT_DISK:
+            args += ["--disk-size", DEFAULT_DISK]
         auth_token = None
         if self.private:
             auth_token = os.urandom(24).hex()
             args += ["--auth", "token", "--token", auth_token]
         else:
             args += ["--auth", "none"]
-        env = app_env(self.root)
+        env = app_env(self.root, include_key=self.include_key)
         for k, v in env.items():
             args += ["--env", f"{k}={v}"]
         subnet = _default_subnet(self.sh)
         if subnet:
             args += ["--subnet-id", subnet]
         self.emit(f"Creating the Serverless endpoint {ep_name} ({self.platform}, {self.preset})…")
+        t_create = time.monotonic()
         created = _json(self.sh.nebius(*args))
         ep_id = (created.get("metadata") or {}).get("id") or created.get("resource_id") or _endpoint_id(self.sh, ep_name)
         url = self.await_url(ep_id)
-        healthy = self.health(url, auth_token)
+        self.timings["endpoint_ready_s"] = round(time.monotonic() - t_create, 1)
+        healthy = self._timed("first_response_s", self.health, url, auth_token)
+        self.timings["cold_start_s"] = round(time.monotonic() - t_create, 1)
+        self.timings["total_s"] = round(time.monotonic() - t0, 1)
         rec = {"endpoint_id": ep_id, "endpoint": ep_name, "image": image, "url": url, "private": self.private,
                "token": auth_token, "path": str(self.root), "created": time.time(), "healthy": healthy,
                "env": sorted(env), "container_port": info["port"], "platform": self.platform, "preset": self.preset,
-               "history": ((old or {}).get("history") or [])[-9:] + [image]}
+               "history": ((old or {}).get("history") or [])[-9:] + [image], "timings": dict(self.timings)}
         st["apps"][self.name] = rec
         save_state(st)
         if old and old.get("endpoint_id") and healthy:
@@ -269,11 +324,13 @@ class Deployer:
     def run_local(self, st: dict, info: dict, n_findings: int, wrote_dockerfile: bool) -> dict:
         """The same image, env and health check, as a container in local Docker (free; no Nebius calls)."""
         import socket
+        t0 = time.monotonic()
         tag = time.strftime("%Y%m%d-%H%M%S")
         image = f"switchyard-local/{self.name}:{tag}"
         container = f"switchyard-{self.name}"
         self.emit(f"Building {image} (linux/amd64)…")
-        self.sh.run(["docker", "build", "--platform", "linux/amd64", "-t", image, "."], cwd=str(self.root))
+        self._timed("build_s", self.sh.run, ["docker", "build", "--platform", "linux/amd64", "-t", image, "."],
+                    cwd=str(self.root))
         self.sh.run(["docker", "rm", "-f", container], check=False)
         old = st["apps"].get(self.name) or {}
         port = old.get("host_port")
@@ -281,17 +338,21 @@ class Deployer:
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
-        env = app_env(self.root)
+        env = app_env(self.root, include_key=self.include_key)
         cmd = ["docker", "run", "-d", "--name", container, "-p", f"127.0.0.1:{port}:{info['port']}"]
         for k in env:
             cmd += ["-e", k]                     # values come from the environment, never the command line
         self.emit(f"Starting it locally on port {port}…")
+        t_start = time.monotonic()
         self.sh.run(cmd + [image], env=env)
         url = f"http://127.0.0.1:{port}"
-        healthy = self.health(url, None)
+        healthy = self._timed("first_response_s", self.health, url, None)
+        self.timings["cold_start_s"] = round(time.monotonic() - t_start, 1)
         rec = {"local": True, "container": container, "image": image, "url": url, "path": str(self.root),
                "created": time.time(), "healthy": healthy, "env": sorted(env), "host_port": port,
-               "container_port": info["port"], "history": (old.get("history") or [])[-9:] + [image]}
+               "container_port": info["port"], "history": (old.get("history") or [])[-9:] + [image],
+               "timings": dict(self.timings)}
+        rec["timings"]["total_s"] = round(time.monotonic() - t0, 1)
         st["apps"][self.name] = rec
         save_state(st)
         return {**rec, "name": self.name, "endpoint": container, "wrote_dockerfile": wrote_dockerfile,
@@ -463,3 +524,30 @@ def rollback(name: str | None, to: str, shell: Shell | None = None, emit=print) 
                             "created": time.time()}
     save_state(st)
     return {"name": name, "image": image}
+
+
+def public_record(res: dict, *, commit: str | None = None) -> dict:
+    """A shareable record of one deploy: no token, no local path, env var names only."""
+    keep = ("name", "endpoint", "endpoint_id", "url", "image", "platform", "preset", "container_port", "private",
+            "healthy", "local", "env", "timings", "secure", "wrote_dockerfile")
+    out = {k: res[k] for k in keep if k in res}
+    out["deployed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(res.get("created") or time.time()))
+    out["app"] = Path(res.get("path") or "").name or None
+    if commit:
+        out["switchyard_commit"] = commit
+    return out
+
+
+def write_record(res: dict, folder: str | Path) -> Path:
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
+                                cwd=str(Path(__file__).resolve().parent.parent), timeout=10).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        commit = None
+    rec = public_record(res, commit=commit)
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = re.sub(r"[^0-9T]", "", rec["deployed_at"])
+    path = folder / f"{rec['name']}-{stamp}.json"
+    path.write_text(json.dumps(rec, indent=1) + "\n", encoding="utf-8")
+    return path

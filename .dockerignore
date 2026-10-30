@@ -5,3 +5,9 @@
 **/__pycache__
 runs/*
 !runs/demo
+.env.*
+*.pem
+*.mp4
+video
+.claude
+tests

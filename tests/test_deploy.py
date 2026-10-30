@@ -150,3 +150,29 @@ def test_switchyard_demo_settings_and_tavily_key_ship_with_the_app(app):
     assert "SWITCHYARD_PUBLIC" in run and "TAVILY_API_KEY" in run
     assert not any("demo-code" in x or "tvly-" in x for x in run)
     assert sh2.env["SWITCHYARD_RUN_CODE"] == "demo-code"
+
+
+def test_deploy_records_timings_and_a_shareable_record(app, tmp_path):
+    sh = FakeShell()
+    res = deploy.Deployer(app, shell=sh, emit=lambda *_: None, http=lambda u, t: 200, private=True,
+                          include_key=False).run()
+    assert {"build_s", "push_s", "endpoint_ready_s", "first_response_s", "cold_start_s", "total_s"} <= set(res["timings"])
+    flat = " ".join(next(c for c in sh.calls if c[:4] == ("nebius", "ai", "endpoint", "create")))
+    assert "NEBIUS_API_KEY" not in flat and "LLM_MODEL_SUMMARIZE=" in flat
+    saved = json.loads(deploy.STATE.read_text())["apps"]["notes"]
+    path = deploy.write_record({**saved, "name": "notes", "secure": res["secure"]}, tmp_path / "records")
+    rec = json.loads(path.read_text())
+    assert rec["url"] == "https://e-42.nebius.app" and rec["app"] == "notes" and rec["timings"] == res["timings"]
+    assert "token" not in rec and "path" not in rec and "history" not in rec
+
+
+def test_findings_in_files_the_image_leaves_out_do_not_block(app):
+    (app / "fixtures").mkdir(exist_ok=True)
+    (app / "fixtures" / "fake.py").write_text('KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz0123"\n')
+    with pytest.raises(deploy.DeployError, match="blocking"):
+        deploy.Deployer(app, shell=FakeShell(), emit=lambda *_: None, http=lambda u, t: 200).run()
+    (app / ".dockerignore").write_text("fixtures\n!keep\n")
+    res = deploy.Deployer(app, shell=FakeShell(), emit=lambda *_: None, http=lambda u, t: 200).run()
+    assert res["healthy"]
+    ig = deploy.dockerignored(app)
+    assert ig("fixtures/fake.py") and not ig("app/main.py") and not ig("keep")
