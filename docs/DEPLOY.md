@@ -2,7 +2,7 @@
 
 **The live instance:** <https://16-178-179-90.sslip.io/> (AWS EC2, Docker behind Caddy for HTTPS; judge tour at [#tour](https://16-178-179-90.sslip.io/#tour)). It serves the recorded runs, the judge tour and the free repo audit, none of which need a key.
 
-This page is about hosting Switchyard's own web app. Deploying *your* app with `switchyard deploy` is covered in the [README](../README.md#also-in-the-box): the Nebius Serverless path is a preview (implemented and unit-tested; our Nebius tenant is suspended until billing is activated, so it hasn't run live), and `switchyard deploy --local` runs the same image in local Docker.
+This page is about hosting Switchyard's own web app. Deploying *your* app with `switchyard deploy` is covered in the [README](../README.md#also-in-the-box): the Nebius Serverless path is a preview (implemented and tested against the Nebius CLI), and `switchyard deploy --local` runs the same image in local Docker.
 
 The public demo serves recorded runs to everyone and allows live runs only with an access code, so a public URL can't drain your Token Factory credits.
 

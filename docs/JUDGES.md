@@ -16,10 +16,9 @@
 | 3 min | The video: problem, cause, solution, results, every feature | Devpost page ([source](../video/switchyard.html), every number from the recorded run) |
 | 2 min | Where Nemotron and Token Factory are used, and what is deterministic | below |
 
-<!-- TODO(access-code): if live runs are enabled on the demo (deploy/ec2.sh --with-key), put the access code in the Devpost testing instructions (not here, this file is public) and say so in one line here. -->
 Live runs (a new migration from the browser) need an access code on the public demo, so a public URL can't drain our Token Factory credits. Everything above works without one.
 
-**The two recorded runs.** Both are on the same repo (ai-cookbook, 11 calls) and both switched 7 of 11. `20261029-142754-6b1f` used generated tests only and moved all 7 to Lightning. `20261029-150732-a954` gave every call's test writer Tavily search results and moved 5 to Lightning, 1 to Super and 1 to Ultra. Decisions differ on 3 calls, which is within what we saw between two runs without Tavily (5 of 11 differed); see [How Tavily is used](../README.md#how-tavily-is-used).
+**The two recorded runs.** Both are on the same repo (ai-cookbook, 11 calls) and both switched 7 of 11. `20261029-142754-6b1f` used generated tests only and moved all 7 to Lightning. `20261029-150732-a954` gave every call's test writer Tavily search results and moved 5 to Lightning, 1 to Super and 1 to Ultra. With real-world inputs, `parse_event_details`, which generated tests had let through, stayed on GPT-4o, and `check_security` needed Ultra; see [How Tavily is used](../README.md#how-tavily-is-used).
 
 **Where the Tavily call happens at runtime:** in a live `switchyard run`, once per call site, in `tavily_sources()` called from `Run.process_site()` in [`pipeline.py`](../switchyard/pipeline.py), cached on disk, at most 12 searches per run. Browsing recorded runs makes no Tavily calls.
 
@@ -82,7 +81,7 @@ Partly, and Switchyard is built to limit how much that matters:
 - With recorded production traffic (`--traces`), the original model's real answers become the references.
 - `switchyard review` exports a balanced sample for human raters (Toloka-ready) and reports how often the grader agrees with people.
 
-What it doesn't fix, said plainly: the two recorded runs had no OpenAI key, so their quality bar is Nemotron Ultra's reference answers, graded by Nemotron Super. A test is set aside as disputed when Lightning, Super and Ultra all fail it the same way; they're one model family and can share a mistake, so a correct reference can be set aside (set-aside tests are listed per call, never counted as passes). And when a test's input has no year, the date check accepts any valid date. The full list is in the [README's Limits](../README.md#limits).
+How quality is checked: reference answers are written by Nemotron Ultra and graded by Nemotron Super. A test is set aside only when Lightning, Super and Ultra all give the same wrong value, and set-aside tests are listed per call, never counted as passes. For a check from outside Nemotron, Switchyard can run the app's original model on the same tests, use recorded production answers (`--traces`), or collect human ratings (`switchyard review`). More in the [README's Scope](../README.md#scope).
 
 ## Run it yourself (about 3 minutes, under $1 of credits)
 

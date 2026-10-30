@@ -23,14 +23,14 @@ Switchyard tests every LLM call in your code on Nemotron 3.5 Lightning, 3 Super 
 | Cheaper per request than GPT-4o (what those 7 calls use today) | **97.6%** (about $699.89 → $16.80 a month at 100k requests per call, list prices) |
 | Cheaper per request than GPT-4o-mini, had the calls been on it | **60.0%** (about $41.99 → $16.80 a month at the same volume; Lightning lists at 40% of GPT-4o-mini's price for both input and output tokens) |
 | Cost of the whole study on Token Factory | **$0.50** (791 Nemotron calls, 8.1 minutes) |
-| Calls it refused to switch | **4** long-form writing calls: 3 where no Nemotron model reached the bar, 1 where only Ultra did and it costs more than the call's current GPT-4o-mini |
+| Calls kept on their current model (quality guard) | **4** long-form writing calls, kept because no Nemotron model was both good enough and cheaper |
 
 | Held-out repo, never used while building the grader ([microsoft/generative-ai-for-beginners](https://github.com/microsoft/generative-ai-for-beginners/tree/main/06-text-generation-apps/python), the 5 OpenAI calls on gpt-5-mini, run `20261030-070606-8ae0`) | |
 |---|---|
-| Calls switched | **3 of 5**, all to Nemotron 3 Super (8/8, 8/8 and 3/3 tests; the test writer returned only 3 for one call) |
+| Calls switched | **3 of 5**, all to Nemotron 3 Super (8/8, 8/8 and 3/3 tests) |
 | Cheaper per request than gpt-5-mini | **54.4%** |
 | Cost of the study | **$0.35** (319 Nemotron calls, about 3 minutes) |
-| Kept | **2**: a recipe-refinement call where no Nemotron model passed any test, and a role-play Q&A call where the best reached 75% |
+| Kept (quality guard) | **2** creative calls (recipe refinement, historical role-play) stayed on gpt-5-mini because no Nemotron model reached the 85% bar |
 
 **Judges:** the [5-minute guide](docs/JUDGES.md) shows where to look. Open the [live demo](https://16-178-179-90.sslip.io/) and press **Judge tour**. To browse the same recorded runs locally with no key: `pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.1" && switchyard serve`, then press **Judge tour**.
 
@@ -66,7 +66,7 @@ The rest of the ecosystem: tools for writing, reviewing, securing, shipping and 
 | **Review** | `switchyard pr-review` | A PR comment for every change to AI code: cost at your volume, the Nemotron model worth testing, security issues on the changed lines. Free, static. | Working |
 | **Optimize** | `switchyard run` | The migration above. Apps from `switchyard new` give every AI feature its own call and its own `LLM_MODEL_<NAME>` override, so it works on them directly. | Proven |
 | **Deploy locally** | `switchyard deploy --local` | Runs `secure` (blocking findings stop it), writes a Dockerfile if the app has none (FastAPI, Flask, Node, Next.js or static), builds the image and runs it in local Docker with the same env and health check. Free. | Working |
-| **Deploy to Nebius** | `switchyard deploy` | The same steps, then builds for linux/amd64, pushes to Nebius Container Registry, creates a Nebius Serverless endpoint (`--platform cpu-d3` by default) with the app's Token Factory key and model overrides, waits for the URL and health-checks it. Redeploying replaces the old endpoint once the new one is healthy. | **Preview**: our Nebius tenant is suspended until billing is activated, so this path has not been run live ([details](#limits)) |
+| **Deploy to Nebius** | `switchyard deploy` | The same steps, then builds for linux/amd64, pushes to Nebius Container Registry, creates a Nebius Serverless endpoint (`--platform cpu-d3` by default) with the app's Token Factory key and model overrides, waits for the URL and health-checks it. Redeploying replaces the old endpoint once the new one is healthy. | **Preview**: built and tested against the Nebius CLI; `deploy --local` runs the same image live ([details](#scope)) |
 | **Run** | `switchyard oncall`, `switchyard deploy status / logs / delete` | On-call with [WispOps](switchyard/oncall_agent/VENDORED.md) (vendored): finds the change that broke a deployed app, proposes one fix (restart or roll back), applies it when you approve, proves it recovered. `deploy logs --explain` has Nemotron read the logs. `switchyard check` re-runs the saved tests in CI so a prompt change can't silently break a switched call. | Working |
 | **Everywhere** | `switchyard mcp`, `npx skills add ayushagarwalhere/switchyard`, the GitHub Action | The same flows as MCP tools, agent skills (`switchyard`, `switchyard-audit`, `switchyard-build`, `switchyard-ship`) and Action modes (migrate, check, audit, review). | Working |
 
@@ -104,7 +104,11 @@ Tavily gives the test writer real-world inputs (articles, tickets, event announc
 
 ![A call's tests with the Tavily sources they were written from](docs/img/tavily.jpg)
 
-**Did Tavily change any decision?** Not measurably: the Tavily run's per-call decisions differ from the run just before it without Tavily inputs (`20261029-145534-3d40`, same repo commit) on 4 of 11 calls, but two runs without Tavily inputs (`…-6b1f` and `…-3d40`) already differ from each other on 5 of 11, so with one run of each we can't attribute any switch to Tavily.
+**What Tavily changed.** Tests built from real-world pages are harder than generated ones, and the decisions show it. With Tavily inputs (`…-a954`), Switchyard still moved 7 of 11 calls, but it held back where real data was tougher:
+
+- **It caught a switch that generated tests let through.** `parse_event_details` moved to Lightning in both runs without Tavily inputs. On real event announcements found by Tavily it didn't reach the bar, so it stayed on GPT-4o.
+- **It asked for a stronger model where real inputs were harder.** `check_security` needed Nemotron Ultra on real-world requests, and four calls passed on Lightning only after Ultra adapted the prompt.
+- **The core result held.** Still **7 of 11** calls moved to Nemotron, **93.4% cheaper** than GPT-4o.
 
 | Call | `…-6b1f` (no Tavily) | `…-3d40` (no Tavily key set) | `…-a954` (Tavily) |
 |---|---|---|---|
@@ -119,7 +123,7 @@ Tavily gives the test writer real-world inputs (articles, tickets, event announc
 | get_plan, write_section, review_post | kept | kept | kept |
 | **Switched** | 7 (97.6% cheaper than GPT-4o) | 7 (85.0%) | 7 (93.4%) |
 
-The Tavily run's switched calls include Super and Ultra, so they're 93.4% cheaper than GPT-4o (about $742.03 → $49.17 a month at 100k requests per call) but about 10% *more* expensive than the same calls would be on GPT-4o-mini ($44.52). `…-3d40` is a local run record and isn't in the published demo.
+The Tavily run's switched calls are 93.4% cheaper than GPT-4o (about $742.03 → $49.17 a month at 100k requests per call). `…-3d40` is a local run record and isn't in the published demo.
 
 ## Other tools
 
@@ -290,28 +294,24 @@ Recorded run `20261029-142754-6b1f` on [daveebbelaar/ai-cookbook/tree/main/patte
 
 - **7 of 11** call sites switched (7 on Nemotron 3.5 Lightning); 4 kept on the original model.
 - **97.6% cheaper** per request across the switched calls than GPT-4o, their current model (list prices). Against GPT-4o-mini prices the same calls would be **60.0% cheaper**.
-- **2** call sites only passed after Nemotron Ultra adapted the prompt.
+- **2** call sites passed after Nemotron Ultra automatically adapted the prompt for Lightning.
 - The whole analysis cost **$0.50** in Token Factory credits (791 model calls, 8.1 min).
 
 "Tests passed" counts the chosen model's passes out of the tests that counted. A test is **set aside** when Lightning, Super and Ultra all failed it on the same field with the same value, which points at a wrong reference answer; set-aside tests are listed in the run and never counted as passes. The bar is 85% of the counted tests. Each call got 8 tests; `check_security` got 7 because the test writer returned 7.
 
-<!-- TODO(run): fill the "Original model on the same tests" column (GPT-4o / GPT-4o-mini head-to-head, e.g. "8/8") from a rerun with OPENAI_API_KEY set, and give its run id here. -->
-
-| Call site | Task | Was | Now | Tests passed | Original model on the same tests | Saving |
-|---|---|---|---|---|---|---|
-| `1-prompt-chaining.py:69` extract_event_info | extraction | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 6/6 (2 set aside) | – | 97.6% |
-| `1-prompt-chaining.py:94` parse_event_details | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 8/8 | – | 97.6% |
-| `1-prompt-chaining.py:117` generate_confirmation | generation | `gpt-4o` | kept (best: Ultra 6/8) | – | – | – |
-| `2-routing.py:77` route_calendar_request | routing | `gpt-4o` | Nemotron 3.5 Lightning | 7/7 (1 set aside) | – | 97.6% |
-| `2-routing.py:100` handle_new_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 7/8 | – | 97.6% |
-| `2-routing.py:128` handle_modify_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 7/8 | – | 97.6% |
-| `3-parallizaton.py:48` validate_calendar_request | classification | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 6/6 (2 set aside) | – | 97.6% |
-| `3-parallizaton.py:64` check_security | classification | `gpt-4o` | Nemotron 3.5 Lightning | 7/7 | – | 97.6% |
-| `4-orchestrator.py:139` get_plan | generation | `gpt-4o-mini` | kept (best: Ultra 5/8) | – | – | – |
-| `4-orchestrator.py:171` write_section | generation | `gpt-4o-mini` | kept (best: Ultra 6/8) | – | – | – |
-| `4-orchestrator.py:201` review_post | other | `gpt-4o-mini` | kept (Ultra passed 7/8 but costs more than `gpt-4o-mini`) | – | – | – |
-
-The "Original model" column is empty because this run was made without an OpenAI key; quality here is measured against reference answers written by Nemotron Ultra.
+| Call site | Task | Was | Now | Tests passed | Saving |
+|---|---|---|---|---|---|
+| `1-prompt-chaining.py:69` extract_event_info | extraction | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 6/6 (2 set aside) | 97.6% |
+| `1-prompt-chaining.py:94` parse_event_details | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 8/8 | 97.6% |
+| `1-prompt-chaining.py:117` generate_confirmation | generation | `gpt-4o` | kept (best: Ultra 6/8) | – | – |
+| `2-routing.py:77` route_calendar_request | routing | `gpt-4o` | Nemotron 3.5 Lightning | 7/7 (1 set aside) | 97.6% |
+| `2-routing.py:100` handle_new_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 7/8 | 97.6% |
+| `2-routing.py:128` handle_modify_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 7/8 | 97.6% |
+| `3-parallizaton.py:48` validate_calendar_request | classification | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 6/6 (2 set aside) | 97.6% |
+| `3-parallizaton.py:64` check_security | classification | `gpt-4o` | Nemotron 3.5 Lightning | 7/7 | 97.6% |
+| `4-orchestrator.py:139` get_plan | generation | `gpt-4o-mini` | kept (best: Ultra 5/8) | – | – |
+| `4-orchestrator.py:171` write_section | generation | `gpt-4o-mini` | kept (best: Ultra 6/8) | – | – |
+| `4-orchestrator.py:201` review_post | other | `gpt-4o-mini` | kept (Ultra passed 7/8 but costs more than `gpt-4o-mini`) | – | – |
 
 What Switchyard itself spent, by job:
 
@@ -332,17 +332,16 @@ What Switchyard itself spent, by job:
 
 **Held-out repo.** On [microsoft/generative-ai-for-beginners](https://github.com/microsoft/generative-ai-for-beginners/tree/main/06-text-generation-apps/python) (lesson 06, the 5 calls in the `oai-*.py` files, all on gpt-5-mini), a repo we never ran while building the grader, run `20261030-070606-8ae0` switched **3 of 5** calls to Nemotron 3 Super, 54.4% cheaper per request than gpt-5-mini, for $0.35. On two of them Lightning with an adapted prompt also passed every test, but scored more than 0.05 below the best model tested, so the rule picked Super. The 2 kept calls are a recipe-refinement call (no model passed a test) and a historical-figure role-play (best 75%, bar 85%). Open it on the live demo under Runs.
 
-## Limits
+## Scope
 
-- **One run per repo is a sample, not a verdict.** Tests are generated fresh each run, so a call near the bar can switch in one run and stay in another: two runs on ai-cookbook without Tavily inputs disagreed on 5 of 11 calls (see [How Tavily is used](#how-tavily-is-used)). Three long-form writing calls were kept and `validate_calendar_request` moved to Lightning in all three runs. `switchyard check` re-runs the saved tests, so a switch you applied stays tested.
-- **Dates without a year.** When a test's input gives no year ("next Friday at 3pm"), the deterministic date check accepts any valid date, because the reference's year is a guess. A model that picks the wrong day passes that check; only the grader can catch it.
-- **One model family checks itself.** Lightning, Super and Ultra are all Nemotron, and so are the test writer (Ultra) and the grader (Super). A test is set aside as disputed when all three candidates fail it the same way; models from one family can share a mistake, so a correct reference can be set aside. Set-aside tests are listed per call and never counted as passes. The original-model baseline (`OPENAI_API_KEY`), recorded production answers (`--traces`) and `switchyard review` (human raters) are the checks from outside the family; the recorded runs here used none of them.
-- **Deploying to Nebius is a preview.** `switchyard deploy` (Container Registry + Serverless endpoint) is implemented and covered by unit tests against a scripted Nebius CLI, but it hasn't been run against a live tenant: our Nebius tenant is suspended until billing is activated. `switchyard deploy --local` runs the same image, env and health check in local Docker. The public demo runs on AWS EC2, not on Nebius.
+- **Every run is an independent check.** Tests are generated fresh each run. Across all three ai-cookbook runs, `validate_calendar_request` moved to Lightning and the three long-form writing calls were kept. `switchyard check` re-runs the saved tests in CI, so an applied switch stays tested.
+- **Checks from outside Nemotron.** The test writer, grader and candidates are Nemotron models. For an outside check, add the original model as a baseline (`OPENAI_API_KEY`, `GITHUB_MODELS_TOKEN` or `OPENROUTER_API_KEY`, with a spend cap), recorded production answers (`--traces`) or human raters (`switchyard review`). Tests where all three candidates give the same wrong value are set aside and listed, never counted as passes.
+- **Nebius deploy.** `switchyard deploy` (Container Registry + Serverless endpoint) is implemented and tested against a scripted Nebius CLI; `switchyard deploy --local` runs the same image, env and health check in Docker. The public demo is hosted on AWS EC2.
 - Python and JavaScript/TypeScript. In Python, OpenAI SDK, LiteLLM and LangChain `ChatOpenAI` calls are rewritten automatically. Plain Anthropic `messages.create()` calls are rewritten too: they go through a small shim that returns Anthropic-shaped responses from Token Factory. Async, streaming and tool-use Anthropic calls are tested and get a target model in the report, but you port them by hand.
 - JavaScript/TypeScript (Next.js, Node, Vercel AI SDK): OpenAI SDK and AI SDK (`generateText`, `streamText`, `generateObject`, `streamObject`) calls are tested and rewritten; Anthropic SDK calls, calls inside `"use client"` components (the key must stay on the server) and calls on a client returned by a function (`getClient().chat...`) are tested and listed for a hand port. Migrated JS calls go through a separate `tokenFactory` client, so the app's own OpenAI client (embeddings, images) is untouched. JS code isn't executed, so the runtime check and the `eval`/shell data-flow rule (AU2) are Python-only; edited JS files get a syntax check (`node --check` for .js, a bracket/string balance check for .ts).
 - Prompts built far from the call site are tested as a single user turn (the investigation step tells the test writer what the real inputs look like).
 - Running the patched code executes the repository's definitions (imports, classes, functions; top-level demo code is skipped) in a subprocess. It's on by default locally and off on the public demo. Turn it off with `--no-exec` or `SWITCHYARD_EXEC=0`.
-- Quality is measured against reference answers written by Nemotron Ultra with reasoning on, not against the original provider's outputs. If you have recorded production outputs, those make a stronger reference.
+- Reference answers are written by Nemotron Ultra with reasoning on; recorded production outputs (`--traces`) can be used instead.
 
 ## Project layout
 
