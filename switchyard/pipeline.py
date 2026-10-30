@@ -85,7 +85,7 @@ class Run:
                  use_tavily: bool = True, max_sites: int = 12, emit=None, run_id: str | None = None,
                  include: list[str] | None = None, exclude: list[str] | None = None,
                  traces_path: str | None = None, run_tests: bool = False, execute: bool | None = None,
-                 audit: bool = True):
+                 audit: bool = True, tavily_inputs: str | None = None):
         self.id = run_id or time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
         self.source = source
         self.tests = tests
@@ -95,6 +95,12 @@ class Run:
         self.tavily_used = 0      # web searches this run (cached answers don't count)
         self._tavily_lock = threading.Lock()
         self._tavily_warned = False
+        # "snippets": search excerpts feed the test writer; "full": document calls get whole pages (Tavily Extract)
+        self.tavily_inputs = (tavily_inputs or config.TAVILY_INPUTS).lower()
+        if self.tavily_inputs not in ("snippets", "full"):
+            raise ValueError(f"tavily_inputs must be 'snippets' or 'full', not {self.tavily_inputs!r}")
+        self.tavily_extract_credits = 0   # Extract credits this run (cached pages don't count)
+        self._extract_warned = False
         self.max_sites = max_sites
         self.include = include or []
         self.exclude = exclude or []
@@ -110,6 +116,7 @@ class Run:
         self._emit = emit or (lambda *a, **k: None)
         self.state: dict = {"id": self.id, "source": source, "status": "running", "started": time.time(),
                             "settings": {"tests": tests, "target": target, "budget": budget, "tavily": use_tavily,
+                                         "tavily_inputs": self.tavily_inputs,
                                          "include": self.include, "exclude": self.exclude,
                                          "traces": bool(traces_path), "run_tests": run_tests, "execute": self.execute,
                                          "audit": audit},
@@ -239,6 +246,11 @@ class Run:
             self.state["status"] = "error"
             self.state["error"] = f"{type(e).__name__}: {e}"
         finally:
+            if self.use_tavily:
+                self.state["tavily"] = {"inputs": self.tavily_inputs, "searches": self.tavily_used,
+                                        "extract_credits": self.tavily_extract_credits,
+                                        "extracted": [s["url"] for site in self.state["sites"]
+                                                      for s in site.get("sources") or [] if s.get("full")]}
             if tf is not None:
                 self.state["usage"] = tf.usage.to_dict()
                 if getattr(tf, "traced", None) is not None:
@@ -288,6 +300,41 @@ class Run:
             self.tavily_used += 1
             return True
 
+    def _extract_slot(self, n_pages: int) -> bool:
+        """New Extract requests count against a per-run credit cap (cached pages are free)."""
+        credits = extract_credits(n_pages)
+        with self._tavily_lock:
+            if self.tavily_extract_credits + credits > config.TAVILY_EXTRACT_MAX_CREDITS:
+                return False
+            self.tavily_extract_credits += credits
+            return True
+
+    def full_pages(self, sid: str, sources: list[dict], analysis: dict) -> list[dict]:
+        """--tavily-inputs full: whole pages for calls that read documents; any failure keeps the snippets."""
+        if self.tavily_inputs != "full" or not sources or not wants_full_pages(analysis):
+            return sources
+        urls = [s["url"] for s in sources if s.get("url")]
+        new = [u for u in urls if not _tavily_extract_cache(u).exists()]
+        errors: list[str] = []
+        if new and not self._extract_slot(len(new)):
+            errors.append(f"the run's cap of {config.TAVILY_EXTRACT_MAX_CREDITS} Extract credits is used up "
+                          "(SWITCHYARD_TAVILY_EXTRACT_MAX)")
+            pages = tavily_extract([u for u in urls if u not in new])     # cached pages only: free
+        else:
+            spent: list = []
+            pages = tavily_extract(urls, errors, spent)
+            if new:   # the slot reserved the worst case; keep what the request really used
+                with self._tavily_lock:
+                    self.tavily_extract_credits += sum(spent) - extract_credits(len(new))
+        full = with_full_pages(sources, pages)
+        if not full and not errors:
+            errors.append("no result page was longer than its snippet")
+        if errors and not full and not self._extract_warned:
+            self._extract_warned = True       # once per run, like the search notice
+            self.emit("step", step="tavily", message=f"Tavily Extract gave no full pages ({errors[0]}); "
+                                                     "tests use the search snippets")
+        return full or sources
+
     def process_site(self, tf: TokenFactory, site: dict, prod: list | None = None) -> dict:
         sid = site["id"]
         out: dict = {"site": site, "status": "running"}
@@ -311,8 +358,12 @@ class Run:
                 if errors and not self._tavily_warned:
                     self._tavily_warned = True     # say it once, not once per call site
                     self.emit("step", step="tavily", message=f"Tavily search failed ({errors[0]}); tests use generated inputs only")
-                out["sources"] = [{"title": s.get("title"), "url": s.get("url")} for s in sources]
-                self.emit("sources", id=sid, query=query, sources=out["sources"])
+                sources = self.full_pages(sid, sources, analysis)
+                out["sources"] = [{"title": s.get("title"), "url": s.get("url"),
+                                   **({"full": True, "page_chars": s["page_chars"]} if s.get("full") else {})}
+                                  for s in sources]
+                out["tavily_inputs"] = "full" if any(s.get("full") for s in sources) else "snippets"
+                self.emit("sources", id=sid, query=query, sources=out["sources"], inputs=out["tavily_inputs"])
 
             # recorded production calls are the strongest reference: the original model's real answers
             cases = traces.cases_for_site(site, prod or [], limit=self.tests)
@@ -560,7 +611,107 @@ def tavily_sources(query: str, errors: list | None = None) -> list[dict]:
         except Exception as e:  # noqa: BLE001 - realistic inputs are a bonus, never a blocker
             out = []
             if errors is not None:
-                errors.append(f"{type(e).__name__}: {str(e)[:160].replace(config.tavily_key() or '<none>', '<key>')}")
+                errors.append(_tavily_error(e))
+    return out
+
+
+def _tavily_error(e: Exception) -> str:
+    return f"{type(e).__name__}: {str(e)[:160].replace(config.tavily_key() or '<none>', '<key>')}"
+
+
+# Task types whose inputs can be whole documents: only these get full pages with --tavily-inputs full
+FULL_PAGE_TASKS = {"summarization", "extraction", "classification"}
+# ...and only when an input is a document (an article, an email, an invoice), not a one-line command
+_DOC_WORDS = re.compile(r"(?i)\b(doc|docs|document|article|page|webpage|email|e-mail|report|transcript|post|ticket|"
+                        r"review|invoice|receipt|contract|paper|news|essay|story|resume|cv|filing|letter|manual|"
+                        r"policy|html|markdown|pdf)s?\b|_(doc|text|article|content|body)\b")
+
+
+def wants_full_pages(analysis: dict) -> bool:
+    """A call that summarizes, extracts from or classifies documents."""
+    if (analysis.get("task_type") or "").lower() not in FULL_PAGE_TASKS:
+        return False
+    return any(_DOC_WORDS.search(f"{i.get('name', '')} {i.get('description', '')}")
+               for i in analysis.get("inputs") or [] if isinstance(i, dict))
+
+
+def _tavily_extract_cache(url: str) -> Path:
+    import hashlib
+    return config.HOME / "cache" / "tavily" / "extract" / f"{hashlib.sha256(url.encode()).hexdigest()[:24]}.json"
+
+
+def extract_credits(n_pages: int) -> int:
+    """Tavily bills basic Extract at 1 credit per 5 pages extracted (rounded up per request)."""
+    return -(-n_pages // 5)
+
+
+def _clean_page(text: str, limit: int | None = None) -> str:
+    """Page text as an app would receive it: no image links, no runs of blank lines, cut at a paragraph or sentence."""
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text or "")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if limit and len(text) > limit:
+        cut = text[:limit]
+        end = max(cut.rfind("\n\n"), cut.rfind(". "))
+        text = cut[: end + 1] if end > limit * 0.7 else cut
+    return text.strip()
+
+
+def tavily_extract(urls: list[str], errors: list | None = None, spent: list | None = None) -> dict[str, str]:
+    """Full text of each page (Tavily Extract, basic depth), cached on disk per URL so re-runs cost nothing.
+    Returns {url: text} for the pages that could be read; `spent` gets the credits a new request used."""
+    out: dict[str, str] = {}
+    todo = []
+    for u in dict.fromkeys(u for u in urls if u):
+        try:
+            out[u] = json.loads(_tavily_extract_cache(u).read_text(encoding="utf-8"))["text"]
+        except (OSError, ValueError, KeyError, TypeError):
+            todo.append(u)
+    if not todo:
+        return out
+    try:
+        from tavily import TavilyClient
+        res = TavilyClient(api_key=config.tavily_key()).extract(urls=todo, extract_depth="basic", format="text",
+                                                                include_usage=True)
+        got = 0
+        for r in res.get("results", []):
+            url, text = r.get("url"), _clean_page(r.get("raw_content") or "")
+            if not url or not text:
+                continue
+            got += 1
+            key = url if url in todo else next((u for u in todo if u.rstrip("/") == url.rstrip("/")), url)
+            out[key] = text
+            cache = _tavily_extract_cache(key)
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps({"url": key, "text": text}), encoding="utf-8")
+        if spent is not None:
+            used = (res.get("usage") or {}).get("credits")
+            spent.append(used if isinstance(used, (int, float)) else extract_credits(got))
+        if not got and errors is not None:
+            errors.append(f"no page could be read ({len(res.get('failed_results') or [])} failed)")
+    except ImportError:
+        if errors is not None:
+            errors.append("the tavily-python package isn't installed: pip install tavily-python")
+    except Exception as e:  # noqa: BLE001 - full pages are a bonus: the snippets still work
+        if errors is not None:
+            errors.append(_tavily_error(e))
+    return out
+
+
+def with_full_pages(sources: list[dict], pages: dict[str, str], n: int | None = None,
+                    chars: int | None = None) -> list[dict]:
+    """The first `n` search results whose page was read, each carrying up to `chars` characters of it:
+    fewer, longer sources, so the test writer can build whole-document inputs. Empty when no page was read."""
+    n = config.TAVILY_FULL_PAGES if n is None else n
+    chars = config.TAVILY_FULL_CHARS if chars is None else chars
+    out = []
+    for s in sources:
+        text = _clean_page(pages.get(s.get("url") or "", ""), chars)
+        # a page barely longer than its snippet adds nothing (paywall, cookie wall, all navigation)
+        if len(text) > len(s.get("content") or "") + 200:
+            out.append({**s, "content": text, "full": True, "page_chars": len(text)})
+        if len(out) >= n:
+            break
     return out
 
 

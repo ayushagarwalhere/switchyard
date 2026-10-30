@@ -238,3 +238,11 @@ def langsmith_key() -> str | None:
 
 # Free Tavily plans have a monthly request quota: at most this many searches per run (0 turns Tavily off)
 TAVILY_MAX_PER_RUN = int(os.environ.get("SWITCHYARD_TAVILY_MAX", "12"))
+
+# How Tavily results feed the test writer: "snippets" (the search results' short excerpts) or "full" (for calls
+# that read documents, Tavily Extract fetches the result pages and the test writer gets their full text)
+TAVILY_INPUTS = os.environ.get("SWITCHYARD_TAVILY_INPUTS", "snippets").strip().lower()
+TAVILY_FULL_PAGES = int(os.environ.get("SWITCHYARD_TAVILY_FULL_PAGES", "3"))       # pages extracted per call site
+TAVILY_FULL_CHARS = int(os.environ.get("SWITCHYARD_TAVILY_FULL_CHARS", "6000"))    # characters kept per page
+# Extract costs 1 credit per 5 pages (basic depth); new extractions per run stop at this many credits
+TAVILY_EXTRACT_MAX_CREDITS = int(os.environ.get("SWITCHYARD_TAVILY_EXTRACT_MAX", "6"))

@@ -247,6 +247,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     dr = sub.add_parser("doctor", help="probe chat / JSON / schema / tools / thinking / Responses API per model")
     dr.add_argument("--out", help="also write the Markdown table to this file")
+    dr.add_argument("--feedback", action="store_true",
+                    help="measure the Token Factory issues we report (schema descriptions, model IDs, latency, "
+                         "cut-off JSON, embeddings) and write the feedback report (a few cents)")
+    dr.add_argument("--samples", type=int, default=5, help="requests per measurement with --feedback (default 5)")
 
     v = sub.add_parser("serve", help="start the web app")
     v.add_argument("--host", default="127.0.0.1")
@@ -412,6 +416,22 @@ def _dispatch(args) -> int:
         print(f"\nHeadline: {h['migrated']}/{h['sites']} calls switched, {h['saving_pct']}% cheaper per request, "
               f"{h['repaired']} repaired, analysis cost ${h['run_cost']:.2f} over {h['run_calls']} Token Factory calls.\n")
         print(res["markdown"])
+        return 0
+
+    if args.cmd == "doctor" and args.feedback:
+        import os
+        from . import feedback
+        print(f"Measuring Token Factory for the feedback report ({args.samples} samples each) ...")
+        data = feedback.run(n=max(1, args.samples), log=lambda m: print("  " + m, flush=True))
+        md = feedback.markdown(data)
+        out = args.out or "FEEDBACK.md"
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(md)
+        raw = os.path.join(os.path.dirname(os.path.abspath(out)), "docs", "feedback.json")
+        if os.path.isdir(os.path.dirname(raw)):
+            with open(raw, "w", encoding="utf-8") as f:
+                f.write(json.dumps(data, indent=1) + "\n")
+        print(f"Wrote {out} ({data['calls']} requests, about ${data['cost_usd']:.2f})")
         return 0
 
     if args.cmd == "doctor":

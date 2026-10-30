@@ -1,0 +1,662 @@
+{
+ "measured_at": "2026-10-30 03:37 UTC",
+ "base_url": "https://api.tokenfactory.us-central1.nebius.com/v1/",
+ "samples": 5,
+ "ids": {
+  "all": [
+   "MiniMaxAI/MiniMax-M3",
+   "NousResearch/Hermes-4-405B",
+   "Qwen/Qwen3-235B-A22B-Instruct-2507",
+   "Qwen/Qwen3-30B-A3B-Instruct-2507",
+   "Qwen/Qwen3-Embedding-8B",
+   "Qwen/Qwen3.5-397B-A17B",
+   "Qwen/Qwen3.8-27B",
+   "deepseek-ai/DeepSeek-V4-Flash-0731",
+   "google/gemma-3-27b-it",
+   "moonshotai/Kimi-K2.6",
+   "moonshotai/Kimi-K2.7-Code",
+   "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+   "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "nvidia/Nemotron-3_5-Lightning",
+   "nvidia/nemotron-3-super-120b-a12b",
+   "openai/gpt-oss-120b",
+   "openbmb/MiniCPM-V-4_5",
+   "zai-org/GLM-5.1"
+  ],
+  "nemotron": [
+   {
+    "id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "case": "mixed",
+    "vendor_prefix": true,
+    "version": "plain"
+   },
+   {
+    "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+    "case": "mixed",
+    "vendor_prefix": false,
+    "version": "plain"
+   },
+   {
+    "id": "nvidia/Nemotron-3_5-Lightning",
+    "case": "mixed",
+    "vendor_prefix": false,
+    "version": "underscore"
+   },
+   {
+    "id": "nvidia/nemotron-3-super-120b-a12b",
+    "case": "lower",
+    "vendor_prefix": false,
+    "version": "plain"
+   }
+  ],
+  "embedding": [
+   "Qwen/Qwen3-Embedding-8B"
+  ]
+ },
+ "latency": [
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "n": 5,
+   "errors": 0,
+   "median_s": 1.12,
+   "p90_s": 2.24,
+   "median_tokens": 77,
+   "tok_per_s": 59.3
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "n": 5,
+   "errors": 0,
+   "median_s": 0.62,
+   "p90_s": 0.69,
+   "median_tokens": 54,
+   "tok_per_s": 86.2
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "n": 5,
+   "errors": 0,
+   "median_s": 0.59,
+   "p90_s": 0.61,
+   "median_tokens": 65,
+   "tok_per_s": 109.6
+  }
+ ],
+ "schema": [
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "variant": "schema only in response_format",
+   "n": 5,
+   "both_ok": 5,
+   "name_ok": 5,
+   "time_ok": 5,
+   "example": "{\"name\": \"Team Meeting\", \"date\": \"2026-11-03T14:00:00-05:00 (Tuesday, November 3, 2026 at 2:00 PM EST/EDT depending on DST status, though the system date is Oct"
+  },
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "variant": "schema also in the prompt",
+   "n": 5,
+   "both_ok": 5,
+   "name_ok": 5,
+   "time_ok": 5,
+   "example": "{\"name\": \"Team Meeting\", \"date\": \"2026-11-03T14:00:00\"}"
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "variant": "schema only in response_format",
+   "n": 5,
+   "both_ok": 0,
+   "name_ok": 0,
+   "time_ok": 0,
+   "example": "{\"name\": \"create_calendar_event\", \"date\": \"Tuesday, November 3, 2026 at 2:00 PM for 1 hour\"}"
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "variant": "schema also in the prompt",
+   "n": 5,
+   "both_ok": 5,
+   "name_ok": 5,
+   "time_ok": 5,
+   "example": "{\"name\": \"Team Meeting with Alice and Bob\", \"date\": \"2026-11-03T14:00:00\"}"
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "variant": "schema only in response_format",
+   "n": 5,
+   "both_ok": 5,
+   "name_ok": 5,
+   "time_ok": 5,
+   "example": "{\"name\": \"Team Meeting\", \"date\": \"2026-11-03T14:00:00-05:00\"}"
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "variant": "schema also in the prompt",
+   "n": 5,
+   "both_ok": 5,
+   "name_ok": 5,
+   "time_ok": 5,
+   "example": "{\"name\": \"Team meeting with Alice and Bob\", \"date\": \"2026-11-03T14:00:00\"}"
+  }
+ ],
+ "runaway": [
+  {
+   "model": "lightning",
+   "id": "nvidia/Nemotron-3_5-Lightning",
+   "n": 3,
+   "errors": 0,
+   "hit_cap": 0,
+   "invalid_json": 0,
+   "median_tokens": 1431,
+   "max_tokens": 1452
+  },
+  {
+   "model": "super",
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "n": 3,
+   "errors": 0,
+   "hit_cap": 0,
+   "invalid_json": 0,
+   "median_tokens": 1632,
+   "max_tokens": 2422
+  },
+  {
+   "model": "ultra",
+   "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "n": 3,
+   "errors": 0,
+   "hit_cap": 0,
+   "invalid_json": 0,
+   "median_tokens": 1599,
+   "max_tokens": 2474
+  }
+ ],
+ "embeddings": [
+  {
+   "id": "Qwen/Qwen3-Embedding-8B",
+   "n": 10,
+   "errors": 0,
+   "dim": 4096,
+   "min_s": 0.61,
+   "median_s": 1.13,
+   "max_s": 8.51
+  }
+ ],
+ "cost_usd": 0.0274,
+ "calls": 54,
+ "recorded": {
+  "runs": 12,
+  "calls": 1956,
+  "latency": {
+   "lightning": {
+    "n": 650,
+    "median_s": 5.7,
+    "p90_s": 22.52
+   },
+   "super": {
+    "n": 653,
+    "median_s": 4.42,
+    "p90_s": 19.79
+   },
+   "ultra": {
+    "n": 653,
+    "median_s": 4.74,
+    "p90_s": 20.62
+   }
+  },
+  "cutoffs": {
+   "lightning": {
+    "structured_calls": 594,
+    "cut_off": 20
+   },
+   "super": {
+    "structured_calls": 594,
+    "cut_off": 2
+   },
+   "ultra": {
+    "structured_calls": 594,
+    "cut_off": 25
+   }
+  },
+  "cutoff_runs": [
+   "20261029-130909-fde0",
+   "20261029-135200-dc10",
+   "20261029-140123-724f",
+   "20261029-141459-b9fe",
+   "20261029-150732-a954"
+  ],
+  "cutoff_cases": [
+   {
+    "run": "20261029-130909-fde0",
+    "function": "generate_confirmation",
+    "model": "ultra",
+    "case": 2,
+    "tokens_out": 8192,
+    "visible_chars": 164,
+    "tail": " Conference Room B for your quarterly performance review. See you then! - Susie\""
+   },
+   {
+    "run": "20261029-130909-fde0",
+    "function": "generate_confirmation",
+    "model": "ultra",
+    "case": 5,
+    "tokens_out": 8192,
+    "visible_chars": 163,
+    "tail": "April 9th at 4:00 PM \u2013 4:15 PM. Looking forward to catching up!\\n\\nBest,\\nSusie\""
+   },
+   {
+    "run": "20261029-130909-fde0",
+    "function": "generate_confirmation",
+    "model": "ultra",
+    "case": 7,
+    "tokens_out": 8192,
+    "visible_chars": 293,
+    "tail": "n / Premi\u00e8re r\u00e9union \ud83c\udf89\\n\\nLooking forward to getting things started!\\n\\n\u2014 Susie\""
+   },
+   {
+    "run": "20261029-130909-fde0",
+    "function": "generate_confirmation",
+    "model": "ultra",
+    "case": 8,
+    "tokens_out": 8192,
+    "visible_chars": 363,
+    "tail": "dates or blockers from your regions.\\n\\nLooking forward to syncing up.\\n\\nSusie\""
+   },
+   {
+    "run": "20261029-130909-fde0",
+    "function": "handle_modify_event",
+    "model": "ultra",
+    "case": 8,
+    "tokens_out": 8192,
+    "visible_chars": 344,
+    "tail": "eld\": \"remove_attendees\",\n      \"new_value\": \"Linda (old interim CFO)\"\n    }\n  ]"
+   },
+   {
+    "run": "20261029-130909-fde0",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 1,
+    "tokens_out": 8192,
+    "visible_chars": 1314,
+    "tail": "ecdote or composite scenario. No buzzwords. Thesis statement at end of section.\""
+   },
+   {
+    "run": "20261029-130909-fde0",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 3,
+    "tokens_out": 8192,
+    "visible_chars": 1317,
+    "tail": "e punchy paragraph. No fluff. Lead with the insight, not the problem statement.\""
+   },
+   {
+    "run": "20261029-130909-fde0",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 4,
+    "tokens_out": 8192,
+    "visible_chars": 444,
+    "tail": "he 'Topic:' field to receive a structural analysis.\",\n      \"style_guide\": \"N/A\""
+   },
+   {
+    "run": "20261029-130909-fde0",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 7,
+    "tokens_out": 8192,
+    "visible_chars": 1946,
+    "tail": "lens. Present tense for immediacy, slipping into past as the narrative deepens.\""
+   },
+   {
+    "run": "20261029-135200-dc10",
+    "function": "generate_confirmation",
+    "model": "ultra",
+    "case": 4,
+    "tokens_out": 4096,
+    "visible_chars": 123,
+    "tail": "session is confirmed for September 5, 2024 at 9:00 AM (120 minutes).\\n\\n\u2014 Susie\""
+   },
+   {
+    "run": "20261029-135200-dc10",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 4,
+    "tokens_out": 4096,
+    "visible_chars": 1011,
+    "tail": "line, a plugin that broke, a moment of frustration. Personal, not performative.\""
+   },
+   {
+    "run": "20261029-135200-dc10",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 7,
+    "tokens_out": 4096,
+    "visible_chars": 1213,
+    "tail": " pero concreto. Usar analog\u00edas (ledger, factura). 200 palabras. Sin c\u00f3digo a\u00fan.\""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "generate_confirmation",
+    "model": "ultra",
+    "case": 5,
+    "tokens_out": 4096,
+    "visible_chars": 115,
+    "tail": "ve set a reminder for 'Groceries' on January 15th, 2024 for 30 minutes. - Susie\""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 1,
+    "tokens_out": 4096,
+    "visible_chars": 1573,
+    "tail": "ences), then the thesis statement. No jargon without payoff. Target ~130 words.\""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 3,
+    "tokens_out": 4096,
+    "visible_chars": 1917,
+    "tail": " close third-person. No abstract preamble. One research anchor, one human beat.\""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 4,
+    "tokens_out": 4096,
+    "visible_chars": 994,
+    "tail": " Establish stakes immediately: 'Your income isn't the problem. Your system is.'\""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 5,
+    "tokens_out": 4096,
+    "visible_chars": 927,
+    "tail": "One punchy paragraph. No fluff. Use terms: 'aliasing,' 'mutation,' 'invariant.'\""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 7,
+    "tokens_out": 4096,
+    "visible_chars": 1080,
+    "tail": "tyle_guide\": \"Narrative hook, bilingual section summary in Chinese. ~180 words.\""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 8,
+    "tokens_out": 4096,
+    "visible_chars": 1774,
+    "tail": "eline, us-east-1'). No exposition dumps\u2014earn the terminology through the scene.\""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 1,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 2,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 4,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 6,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 7,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 8,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "super",
+    "case": 6,
+    "tokens_out": 4096,
+    "visible_chars": 135,
+    "tail": "delays turbine erection. The Voltaire, a jack\u2011up vessel, is fully booked through"
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "super",
+    "case": 7,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-140123-724f",
+    "function": "write_section",
+    "model": "ultra",
+    "case": 6,
+    "tokens_out": 4096,
+    "visible_chars": 15345,
+    "tail": ". \"Booking lead times now exceed twelve months.\" Count: Booking(1) lead(2) times"
+   },
+   {
+    "run": "20261029-141459-b9fe",
+    "function": "generate_confirmation",
+    "model": "ultra",
+    "case": 5,
+    "tokens_out": 4096,
+    "visible_chars": 198,
+    "tail": "(PDT)**. We have **45 minutes** blocked out.\\n\\nLooking forward to it!\\n\\nSusie\""
+   },
+   {
+    "run": "20261029-141459-b9fe",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 6,
+    "tokens_out": 4096,
+    "visible_chars": 1470,
+    "tail": "ploy pipeline took 4 hours on a good day.' No buzzwords without earned context.\""
+   },
+   {
+    "run": "20261029-141459-b9fe",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 7,
+    "tokens_out": 4096,
+    "visible_chars": 1378,
+    "tail": "ional third-person. One vivid example. No jargon without grounding. ~150 words.\""
+   },
+   {
+    "run": "20261029-141459-b9fe",
+    "function": "get_plan",
+    "model": "ultra",
+    "case": 8,
+    "tokens_out": 4096,
+    "visible_chars": 1748,
+    "tail": "ld metric per pillar. No fluff. Transition to 'Start here \u2014 takes 30 mins' CTA.\""
+   },
+   {
+    "run": "20261029-141459-b9fe",
+    "function": "write_section",
+    "model": "ultra",
+    "case": 2,
+    "tokens_out": 4096,
+    "visible_chars": 14363,
+    "tail": "tors see exact rendered drafts before publishing \u2014 no deploy needed.\",\n    \"Netl"
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "get_plan",
+    "model": "lightning",
+    "case": 3,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "get_plan",
+    "model": "lightning",
+    "case": 4,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "get_plan",
+    "model": "lightning",
+    "case": 6,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 1,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 4,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 5,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "write_section",
+    "model": "lightning",
+    "case": 8,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "review_post",
+    "model": "lightning",
+    "case": 1,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "review_post",
+    "model": "lightning",
+    "case": 2,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "review_post",
+    "model": "lightning",
+    "case": 3,
+    "tokens_out": 4096,
+    "visible_chars": 3308,
+    "tail": "irrors the broader pattern: AI can accelerate certain tasks, but its reliability"
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "review_post",
+    "model": "lightning",
+    "case": 4,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "review_post",
+    "model": "lightning",
+    "case": 6,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "review_post",
+    "model": "lightning",
+    "case": 7,
+    "tokens_out": 4096,
+    "visible_chars": 0,
+    "tail": ""
+   },
+   {
+    "run": "20261029-150732-a954",
+    "function": "review_post",
+    "model": "lightning",
+    "case": 8,
+    "tokens_out": 4096,
+    "visible_chars": 1345,
+    "tail": "t, Cursor, and Claude Code are becoming daily companions for engineers worldwide"
+   }
+  ]
+ }
+}
