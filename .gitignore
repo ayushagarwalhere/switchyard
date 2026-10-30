@@ -18,3 +18,5 @@ video/*.mp4
 video/stills/
 video/reel/clips/
 /Video-*.mp4
+video/submission/clips/
+video/submission/voice.log

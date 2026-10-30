@@ -1,5 +1,18 @@
 # Submission video
 
+## The narrated submission video (2:44, 16:9, ready to upload)
+
+[`video/submission.html`](../video/submission.html) is the Devpost video: one narrator, subtitles, real screenshots of the web app, and the guide bird from the web app small in the corner, its beak moving with the voice. It covers the problem, every step of a migration (scan, investigate, tests with Tavily Search and Extract, bake-off, repair, patch, attack), what Tavily changed in the recorded runs, the results, the Nebius ecosystem (`new`, `code`, `secure`, `pr-review`, `deploy` to Nebius Container Registry and Serverless, `oncall`, `router`), where it runs, and the feedback for NVIDIA and Nebius. Every number comes from a published run or FEEDBACK.md.
+
+```bash
+pip install edge-tts numpy playwright imageio-ffmpeg
+switchyard serve --port 8000 && python video/shots.py   # fresh screenshots of the app -> video/shots/
+python video/submission_voice.py                       # narration -> video/submission/timeline.js + voice.m4a
+python video/render.py --page submission.html --audio submission/voice.m4a --out video/switchyard-submission.mp4
+```
+
+To change a line, edit `LINES` in [`video/submission_voice.py`](../video/submission_voice.py) and run the last two commands; only changed lines are voiced again, and scenes follow the new timing. Open `video/submission.html` in a browser and click to preview it with sound (`?t=60` starts at 1:00).
+
 ## The voiced 3D reel (1:58, vertical)
 
 [`video/reel.html`](../video/reel.html) is a vertical (1080x1920) low-poly 3D short: a developer and Switchy, the lime robot, talk through the problem, the cause, and Switchyard with every feature. Cards in between show the real numbers from the published run, and the subtitles follow the voices.

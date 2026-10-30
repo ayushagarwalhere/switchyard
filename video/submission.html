@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switchyard submission video</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Narrated submission video, 1920x1080. Voice + timing: python video/submission_voice.py
+   Render: python video/render.py --page submission.html --audio submission/voice.m4a --out video/switchyard-submission.mp4
+   Preview: open this file in a browser and click to play with sound (?t=60 jumps to 1:00). */
+:root {
+  --bg: #070908; --panel: #101512; --panel-2: #161d18; --line: #24302a;
+  --text: #eef4ef; --muted: #8fa097; --accent: #76b900; --accent-2: #a6e22e;
+  --ok: #6fd36a; --bad: #ff6b6b; --warn: #f4c152;
+  --l: #3dd6c6; --s: #a98bff; --u: #ffb057; --tav: #4aa8ff; --neb: #e0ff4f; --orig: #8a948e;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+body { font-family: Inter, system-ui, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; transform-origin: 0 0;
+  background: radial-gradient(1200px 700px at 85% 10%, rgba(118,185,0,.09), transparent 60%),
+              radial-gradient(900px 600px at 0% 100%, rgba(169,139,255,.08), transparent 60%), var(--bg); }
+#grid { position: absolute; inset: 0; opacity: .3;
+  background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 80px 80px; mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%); }
+
+/* chrome */
+#bar { position: absolute; left: 0; top: 0; height: 6px; width: 100%; background: rgba(255,255,255,.06); z-index: 60; }
+#bar i { position: absolute; inset: 0; transform-origin: 0 50%; transform: scaleX(0); background: linear-gradient(90deg, var(--accent), var(--l)); }
+#chapter { position: absolute; left: 64px; top: 34px; font: 600 21px/1 var(--mono); color: var(--muted); letter-spacing: .12em; text-transform: uppercase; z-index: 60; }
+#brand { position: absolute; right: 64px; top: 26px; display: flex; align-items: center; gap: 12px; font: 700 26px/1 Inter; letter-spacing: -.02em; z-index: 60; }
+.logo { width: 40px; height: 40px; border-radius: 10px; background: #fff; display: grid; place-items: center; }
+.logo svg { width: 24px; height: 24px; }
+
+/* subtitles + mascot */
+#subs { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: 1360px; z-index: 70;
+  padding: 14px 26px; border-radius: 16px; background: rgba(5,7,6,.78); border: 1px solid rgba(255,255,255,.08);
+  font: 500 30px/1.32 Inter; text-align: center; letter-spacing: -.005em; backdrop-filter: blur(6px); }
+#subs:empty { display: none; }
+#mascot { position: absolute; right: 26px; bottom: 14px; width: 190px; height: 190px; z-index: 80; }
+#mascot::before { content: ""; position: absolute; left: 30px; right: 30px; bottom: 16px; height: 22px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(118,185,0,.35), transparent); }
+#mascot canvas { position: absolute; inset: 0; width: 190px; height: 190px; }
+
+/* type */
+.scene { position: absolute; inset: 0; visibility: hidden; opacity: 0; }
+.kicker { font: 600 24px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); display: flex; align-items: center; gap: 14px; }
+.kicker::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 20px var(--accent); }
+.h1 { font-weight: 800; font-size: 104px; line-height: 1.02; letter-spacing: -.045em; }
+.h2 { font-weight: 800; font-size: 66px; line-height: 1.06; letter-spacing: -.035em; }
+.sub { font-size: 32px; line-height: 1.4; color: var(--muted); font-weight: 500; }
+.mono { font-family: var(--mono); }
+.lime { color: var(--accent-2); }
+.grad { background: linear-gradient(90deg, var(--l), var(--s) 55%, var(--u)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.chip { display: inline-flex; align-items: center; gap: 10px; padding: 8px 18px; border-radius: 999px; font: 600 22px/1 var(--mono); border: 2px solid currentColor; white-space: nowrap; }
+.c-l { color: var(--l); } .c-s { color: var(--s); } .c-u { color: var(--u); } .c-t { color: var(--tav); } .c-o { color: var(--orig); } .c-bad { color: var(--bad); } .c-ok { color: var(--ok); } .c-n { color: var(--neb); }
+.card { background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-radius: 24px; padding: 34px 38px; box-shadow: 0 30px 80px rgba(0,0,0,.45); }
+
+/* browser window around screenshots */
+.win { position: absolute; left: 160px; top: 104px; width: 1600px; height: 900px; border-radius: 18px; overflow: hidden;
+  border: 1px solid #2a332e; background: #0b0d0c; box-shadow: 0 40px 120px rgba(0,0,0,.6); }
+.win .tb { height: 40px; background: #121614; border-bottom: 1px solid #222a26; display: flex; align-items: center; gap: 9px; padding: 0 16px; }
+.win .tb i { width: 12px; height: 12px; border-radius: 50%; background: #3a423e; }
+.win .tb span { margin-left: 18px; flex: 0 1 560px; height: 24px; border-radius: 7px; background: #0b0e0d; color: #7f8b85; font: 500 14px/24px var(--mono); padding: 0 12px; }
+.win .vp { position: absolute; left: 0; right: 0; top: 41px; bottom: 0; overflow: hidden; }
+.win .vp img { position: absolute; left: 0; top: 0; width: 1920px; transform-origin: 0 0; }
+.cap { position: absolute; left: 200px; bottom: 150px; z-index: 5; padding: 14px 22px; border-radius: 14px; background: rgba(8,10,9,.88);
+  border: 1px solid var(--line); font: 600 26px/1.3 Inter; box-shadow: 0 20px 50px rgba(0,0,0,.5); }
+.cap b { color: var(--accent-2); }
+.hl { position: absolute; border: 3px solid var(--tav); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0,0,0,.0), 0 0 30px rgba(74,168,255,.5); }
+
+/* hook */
+#hook .calls { position: absolute; left: 160px; top: 200px; display: flex; flex-wrap: wrap; gap: 14px; width: 1600px; }
+#hook .calls span { font: 500 22px/1 var(--mono); padding: 12px 16px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); }
+#hook .calls span em { font-style: normal; color: var(--bad); margin-left: 10px; }
+#hook .bills { position: absolute; left: 160px; top: 440px; display: flex; align-items: flex-end; gap: 70px; }
+#hook .bill { position: relative; font-weight: 800; font-size: 180px; letter-spacing: -.06em; line-height: .95; font-variant-numeric: tabular-nums; }
+#hook .bill small { font-size: 50px; color: var(--muted); letter-spacing: -.03em; }
+#hook .strike { position: absolute; height: 14px; background: var(--bad); left: -10px; right: -10px; top: 52%; transform-origin: 0 50%; border-radius: 8px; box-shadow: 0 0 30px rgba(255,107,107,.5); }
+#hook .note { position: absolute; left: 160px; top: 720px; font: 500 24px/1.4 var(--mono); color: var(--muted); }
+
+/* intro */
+#intro .chips { position: absolute; right: 200px; top: 170px; display: flex; gap: 16px; z-index: 6; }
+#intro .chips .chip { background: rgba(8,10,9,.9); }
+
+/* two-column layouts */
+.left { position: absolute; left: 140px; top: 190px; width: 640px; }
+.left .h2 { margin: 26px 0 26px; }
+.left .rows { display: grid; gap: 18px; margin-top: 34px; }
+.left .rows .r { display: flex; gap: 16px; align-items: center; font: 500 26px/1.35 Inter; color: var(--text); }
+.left .rows .r .chip { flex: none; }
+.right-card { position: absolute; left: 840px; top: 190px; }
+.right-card img { display: block; border-radius: 18px; border: 1px solid #2a332e; box-shadow: 0 40px 100px rgba(0,0,0,.6); }
+
+/* tavily2 */
+#tavily2 .cmp { position: absolute; top: 300px; width: 780px; }
+#tavily2 .cmp h3 { font-size: 34px; letter-spacing: -.02em; margin-bottom: 6px; }
+#tavily2 .cmp .src { font: 500 20px/1.3 var(--mono); color: var(--muted); margin-bottom: 26px; }
+#tavily2 .row { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; padding: 16px 0; border-top: 1px solid var(--line); font: 500 25px/1.3 Inter; }
+#tavily2 .row .lbl small { display: block; color: var(--muted); font: 500 19px/1.3 var(--mono); margin-top: 4px; }
+#tavily2 .foot { margin-top: 18px; font: 500 20px/1.4 var(--mono); color: var(--muted); }
+
+/* results */
+#results .stats { position: absolute; left: 160px; top: 230px; display: grid; grid-template-columns: repeat(3, 520px); gap: 40px; }
+#results .stat b { display: block; font-size: 128px; font-weight: 800; letter-spacing: -.05em; line-height: 1; }
+#results .stat > span { display: block; margin-top: 14px; font-size: 28px; color: var(--muted); line-height: 1.35; }
+#results .held { position: absolute; left: 160px; top: 640px; width: 1600px; display: flex; gap: 40px; align-items: stretch; }
+#results .held .card { flex: 1; font-size: 30px; line-height: 1.4; }
+#results .held .card b { color: var(--s); }
+
+/* ecosystem */
+#eco .title { position: absolute; left: 160px; top: 110px; }
+#eco .flow { position: absolute; left: 110px; top: 330px; display: grid; grid-template-columns: 340px 330px 500px 360px; gap: 22px; }
+#eco .node { position: relative; padding: 22px 24px; }
+#eco .node .n { font: 600 18px/1 var(--mono); color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
+#eco .node h4 { font-size: 30px; letter-spacing: -.02em; margin: 14px 0 14px; }
+#eco .node code { display: block; font: 500 18px/1.5 var(--mono); white-space: nowrap; color: var(--accent-2); }
+#eco .node p { font-size: 19px; line-height: 1.4; color: var(--muted); margin-top: 12px; }
+#eco .node.neb { border-color: rgba(224,255,79,.45); box-shadow: 0 0 60px rgba(224,255,79,.08), 0 30px 80px rgba(0,0,0,.45); }
+#eco .steps { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+#eco .steps span { display: flex; align-items: center; gap: 12px; font: 600 20px/1.2 Inter; padding: 10px 14px; border-radius: 12px; background: rgba(224,255,79,.06); border: 1px solid rgba(224,255,79,.25); }
+#eco .steps span i { font-style: normal; color: var(--neb); font-family: var(--mono); }
+#eco .route { position: absolute; left: 110px; top: 772px; width: 1596px; display: flex; align-items: center; gap: 26px; padding: 18px 28px; }
+#eco .route h4 { font-size: 32px; letter-spacing: -.02em; white-space: nowrap; }
+#eco .route .tracks { display: flex; gap: 14px; }
+#eco .route p { font-size: 23px; color: var(--muted); line-height: 1.35; }
+#eco .band { position: absolute; left: 160px; top: 300px; font: 600 24px/1 var(--mono); color: var(--neb); letter-spacing: .04em; }
+
+/* everywhere */
+#everywhere .grid { position: absolute; left: 160px; top: 330px; display: grid; grid-template-columns: repeat(3, 520px); gap: 30px; }
+#everywhere .tile { min-height: 230px; }
+#everywhere .tile h4 { font-size: 38px; letter-spacing: -.02em; margin-bottom: 14px; }
+#everywhere .tile code { display: block; font: 500 21px/1.55 var(--mono); color: var(--accent-2); }
+#everywhere .tile p { font-size: 22px; color: var(--muted); line-height: 1.4; margin-top: 10px; }
+
+/* feedback */
+#feedback .list { display: grid; gap: 12px; margin-top: 30px; }
+#feedback .list span { font: 500 22px/1.3 Inter; color: var(--muted); display: flex; gap: 14px; }
+#feedback .list span i { font-style: normal; font-family: var(--mono); color: var(--accent); }
+#feedback .list span.on { color: var(--text); }
+#feedback .think { position: absolute; left: 900px; top: 220px; width: 880px; }
+#feedback .think h3 { font-size: 40px; letter-spacing: -.02em; margin-bottom: 8px; }
+#feedback .think .src { font: 500 19px/1.4 var(--mono); color: var(--muted); margin-bottom: 30px; }
+#feedback .brow { margin: 22px 0; }
+#feedback .brow .lab { display: flex; justify-content: space-between; font: 500 23px/1.3 var(--mono); margin-bottom: 10px; }
+#feedback .brow .track { height: 26px; border-radius: 8px; background: rgba(255,255,255,.05); overflow: hidden; }
+#feedback .brow .track i { display: block; height: 100%; border-radius: 8px; transform-origin: 0 50%; }
+
+/* cta */
+#cta { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+#cta .big { display: flex; align-items: center; gap: 30px; font-size: 140px; font-weight: 800; letter-spacing: -.05em; }
+#cta .big .logo { width: 130px; height: 130px; border-radius: 30px; }
+#cta .big .logo svg { width: 78px; height: 78px; }
+#cta .tag { margin-top: 26px; font-size: 42px; color: var(--muted); font-weight: 500; letter-spacing: -.01em; }
+#cta .links { margin-top: 56px; display: flex; gap: 22px; }
+#cta .links .chip { font-size: 26px; padding: 14px 24px; }
+#cta .built { margin-top: 46px; font: 600 24px/1 var(--mono); color: var(--muted); letter-spacing: .06em; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="grid"></div>
+  <div id="bar"><i></i></div>
+  <div id="chapter"></div>
+  <div id="brand"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round"><path d="M4 19h16"/><path d="M5 15c5 0 9-4 14-9"/></svg></span>Switchyard</div>
+
+  <!-- 1 hook -->
+  <section class="scene" id="hook">
+    <div class="kicker" style="position:absolute;left:160px;top:130px" data-at="0.1">Every request · one frontier model</div>
+    <div class="calls" id="hookCalls"></div>
+    <div class="bills">
+      <div class="bill" data-at="L1+0.2">$699.89<small>/mo</small><span class="strike" data-strike="L1+3.2"></span></div>
+      <div class="bill lime" data-at="L1+3.6">$16.80<small>/mo</small></div>
+    </div>
+    <div class="note" data-at="L1+4.0">ai-cookbook workflow patterns · 11 LLM calls · 100k requests per call a month · list prices</div>
+  </section>
+
+  <!-- 2 intro -->
+  <section class="scene" id="intro">
+    <div class="win"><div class="tb"><i></i><i></i><i></i><span>16-178-179-90.sslip.io</span></div>
+      <div class="vp"><img src="shots/hero.png" data-kb="0 0 0.8333 -70 -36 0.88"></div></div>
+    <div class="chips"><span class="chip c-ok" data-at="0.8">NVIDIA Nemotron</span><span class="chip c-n" data-at="1.3">Nebius Token Factory</span><span class="chip c-t" data-at="1.8">Tavily</span></div>
+  </section>
+
+  <!-- 3 scan -->
+  <section class="scene" id="scan">
+    <div class="win"><div class="tb"><i></i><i></i><i></i><span>Judge tour · 01 The problem</span></div>
+      <div class="vp"><img src="shots/tour-problem.png" data-kb="0 0 0.8333 -260 -70 1.0"></div></div>
+    <div class="cap" data-at="L3+4.4"><b>11 LLM calls</b>, all on GPT-4o · Python + TypeScript · OpenAI, Anthropic, LiteLLM, LangChain, Vercel AI SDK</div>
+  </section>
+
+  <!-- 4 investigate -->
+  <section class="scene" id="investigate">
+    <div class="win"><div class="tb"><i></i><i></i><i></i><span>Judge tour · 02 One call, up close</span></div>
+      <div class="vp"><img src="shots/tour-closeup.png" data-kb="0 0 0.8333 -260 -70 1.0"></div></div>
+    <div class="cap" data-at="0.6"><b>Nemotron Super</b> agent: search + read the codebase → the call's contract</div>
+  </section>
+
+  <!-- 5 tavily -->
+  <section class="scene" id="tavily">
+    <div class="left">
+      <div class="kicker" data-at="0.1">03 · Tests + Tavily</div>
+      <div class="h2" data-at="0.3">Tests from <span style="color:var(--tav)">real-world</span> inputs.</div>
+      <div class="sub" data-at="0.6"><b style="color:var(--u)">Nemotron Ultra</b> writes typical and tricky cases with ideal answers.</div>
+      <div class="rows">
+        <div class="r" data-at="L6+0.2"><span class="chip c-t">Tavily Search</span>web text for every call, cached, ≤12 searches a run</div>
+        <div class="r" data-at="L6+5.4"><span class="chip c-t">Tavily Extract</span>whole pages for calls that read documents</div>
+      </div>
+    </div>
+    <div class="right-card" data-at="0.5" style="left:850px;top:240px">
+      <img src="shots/tavily-card.png" style="width:960px">
+      <div class="hl" data-at="L6+1.0" style="left:12px;top:252px;width:416px;height:62px"></div>
+    </div>
+  </section>
+
+  <!-- 6 tavily2 -->
+  <section class="scene" id="tavily2">
+    <div class="kicker" style="position:absolute;left:160px;top:140px" data-at="0.1">What Tavily changed · recorded runs</div>
+    <div class="h2" style="position:absolute;left:160px;top:186px" data-at="0.2">Real inputs change the decision.</div>
+    <div class="cmp card" style="left:160px" data-at="0.6">
+      <h3>Synthetic vs real-world inputs</h3>
+      <div class="src">ai-cookbook · parse_event_details · runs 6b1f vs a954</div>
+      <div class="row"><span class="lbl">Synthetic tests<small>no Tavily</small></span><span class="chip c-l">→ Lightning</span></div>
+      <div class="row" data-at="2.2"><span class="lbl">Tavily inputs<small>failed on real text</small></span><span class="chip c-o">kept</span></div>
+    </div>
+    <div class="cmp card" style="left:980px" data-at="L7+5.0">
+      <h3>Snippets vs whole pages</h3>
+      <div class="src">demo app · Tavily Extract · runs 230b vs 0376</div>
+      <div class="row"><span class="lbl">summarize<small>snippets → full pages</small></span><span><span class="chip c-l" style="font-size:18px">Lightning</span> → <span class="chip c-s" style="font-size:18px">Super</span></span></div>
+      <div class="row" data-at="L7+6.6"><span class="lbl">extract_invoice<small>snippets → full pages</small></span><span><span class="chip c-l" style="font-size:18px">Lightning</span> → <span class="chip c-o" style="font-size:18px">kept</span></span></div>
+      <div class="foot" data-at="L7+7.4">9 pages · 2 Extract credits</div>
+    </div>
+  </section>
+
+  <!-- 7 bakeoff -->
+  <section class="scene" id="bakeoff">
+    <div class="win"><div class="tb"><i></i><i></i><i></i><span>Judge tour · 04 The bake-off</span></div>
+      <div class="vp"><img src="shots/tour-bakeoff.png" data-kb="0 0 0.8333 -470 -90 1.05"></div></div>
+    <div class="cap" data-at="L8+6.5">Cheapest model with <b>≥ 85% of tests passed</b> wins · otherwise the call stays put</div>
+  </section>
+
+  <!-- 8 repair -->
+  <section class="scene" id="repair">
+    <div class="right-card" style="left:310px;top:112px" data-at="0.05">
+      <img src="shots/tavily-card.png" style="width:1300px">
+      <div class="hl" data-at="1.6" style="border-color:var(--bad);box-shadow:0 0 30px rgba(255,107,107,.5);left:588px;top:134px;width:694px;height:58px"></div>
+      <div class="hl" data-at="3.4" style="border-color:var(--l);box-shadow:0 0 30px rgba(61,214,198,.5);left:588px;top:192px;width:694px;height:74px"></div>
+      <div class="hl" data-at="4.8" style="border-color:var(--u);box-shadow:0 0 30px rgba(255,176,87,.5);left:18px;top:516px;width:560px;height:214px"></div>
+    </div>
+  </section>
+
+  <!-- 9 patch -->
+  <section class="scene" id="patch">
+    <div class="win"><div class="tb"><i></i><i></i><i></i><span>Judge tour · 06 The patch</span></div>
+      <div class="vp"><img src="shots/tour-patch.png" data-kb="0 0 0.8333 -380 -70 1.02"></div></div>
+    <div class="cap" data-at="2.4"><b>LLM_MODEL_&lt;CALL&gt;</b> env var per switched call · one-line rollback · compile-checked</div>
+  </section>
+
+  <!-- 10 audit -->
+  <section class="scene" id="audit">
+    <div class="win"><div class="tb"><i></i><i></i><i></i><span>Judge tour · 08 Attack it</span></div>
+      <div class="vp"><img src="shots/tour-audit.png" data-kb="0 0 0.8333 -470 -90 1.05"></div></div>
+    <div class="cap" data-at="1.4">Probes in the style of <b>NVIDIA garak</b> · NeMo Guardrails-style fix · attack re-run</div>
+  </section>
+
+  <!-- 11 results -->
+  <section class="scene" id="results">
+    <div class="kicker" style="position:absolute;left:160px;top:140px" data-at="0.1">Results · recorded runs on Token Factory</div>
+    <div class="stats">
+      <div class="stat" data-at="0.6"><b class="c-l">7/11</b><span>calls moved to Nemotron Lightning<br>(ai-cookbook, real repo)</span></div>
+      <div class="stat" data-at="2.6"><b class="lime"><span data-count="97.6" data-dec="1" data-at="2.6">0</span>%</b><span>cheaper per request<br>than GPT-4o</span></div>
+      <div class="stat" data-at="4.8"><b>$0.50</b><span>for the whole study<br>(791 Nemotron calls)</span></div>
+    </div>
+    <div class="held">
+      <div class="card" data-at="L13+0.1"><b>Held-out repo</b> (microsoft/generative-ai-for-beginners): 3 of 5 calls moved to Nemotron Super, 54.4% cheaper</div>
+      <div class="card" data-at="L13+3.4">Long-form writing <b style="color:var(--orig)">kept</b> on its original model: no Nemotron model cleared the bar</div>
+    </div>
+  </section>
+
+  <!-- 12 ecosystem -->
+  <section class="scene" id="eco">
+    <div class="title"><div class="kicker" data-at="0.1">Write · secure · ship · run · route</div>
+      <div class="h1" data-at="0.3" style="margin-top:18px;font-size:84px">The <span style="color:var(--neb)">Nebius</span> ecosystem.</div></div>
+    <div class="band" data-at="L14+1.4" style="top:110px;left:auto;right:120px">Every model step: NVIDIA Nemotron on Nebius Token Factory</div>
+    <div class="flow">
+      <div class="node card" data-at="L15+0.2"><div class="n">Write</div><h4>An app from a sentence</h4><code>switchyard new "&lt;idea&gt;"</code><code>switchyard code</code><p>Nemotron writes it, with tests, a Dockerfile and a Token Factory client.</p></div>
+      <div class="node card" data-at="L15+3.4"><div class="n">Secure + review</div><h4>Before it ships</h4><code>switchyard secure</code><code>switchyard pr-review</code><p>Leaked keys, vulnerable deps, risky AI code.</p></div>
+      <div class="node card neb" data-at="L16+0.1"><div class="n" style="color:var(--neb)">Ship to Nebius</div><h4>One command</h4><code>switchyard deploy</code>
+        <div class="steps"><span data-at="L16+1.6"><i>1</i>Build linux/amd64 image</span><span data-at="L16+2.6"><i>2</i>Nebius Container Registry</span><span data-at="L16+4.4"><i>3</i>Nebius Serverless endpoint + health check</span></div></div>
+      <div class="node card" data-at="L16+6.4"><div class="n">Run</div><h4>Keep it healthy</h4><code>switchyard oncall</code><code>deploy logs --explain</code><p>Finds the breaking change, one fix, your approval.</p></div>
+    </div>
+    <div class="route card" data-at="L17+0.1"><h4>switchyard router</h4>
+      <div class="tracks"><span class="chip c-l">Lightning</span><span class="chip c-s">Super</span><span class="chip c-u">Ultra</span></div>
+      <p>Each feature → its tested Nemotron model on Token Factory, with fallback to the next tier and per-feature cost metering.</p></div>
+  </section>
+
+  <!-- 13 everywhere -->
+  <section class="scene" id="everywhere">
+    <div class="kicker" style="position:absolute;left:160px;top:140px" data-at="0.1">Built for developers</div>
+    <div class="h2" style="position:absolute;left:160px;top:190px" data-at="0.2">Wherever you already work.</div>
+    <div class="grid">
+      <div class="tile card" data-at="0.4"><h4>Terminal</h4><code>pipx install …switchyard</code><code>switchyard run</code><p>Cost shown first, asks before spending.</p></div>
+      <div class="tile card" data-at="1.1"><h4>Web app</h4><code>switchyard serve</code><p>Every decision, the judge tour, a free audit.</p></div>
+      <div class="tile card" data-at="1.9"><h4>MCP server</h4><code>switchyard mcp</code><p>Any MCP client: migrate, build, secure, deploy.</p></div>
+      <div class="tile card" data-at="2.7"><h4>Agent skills</h4><code>npx skills add …/switchyard</code><p>Claude Code · Codex · Cursor</p></div>
+      <div class="tile card" data-at="5.0"><h4>GitHub Action</h4><code>migrate · check · audit · review</code><p>Opens the PR, nightly regression check, SARIF.</p></div>
+      <div class="tile card" data-at="6.0"><h4>Python + TypeScript</h4><code>OpenAI · Anthropic · LiteLLM</code><code>LangChain · Vercel AI SDK</code></div>
+    </div>
+  </section>
+
+  <!-- 14 feedback -->
+  <section class="scene" id="feedback">
+    <div class="left" style="top:150px;width:700px">
+      <div class="kicker" data-at="0.1">FEEDBACK.md · with repro code</div>
+      <div class="h2" data-at="0.3" style="font-size:60px">Feedback for NVIDIA + Nebius.</div>
+      <div class="list" id="fbList"></div>
+    </div>
+    <div class="think card" data-at="L19+3.6">
+      <h3>Nemotron thinks by default, and it's billed</h3>
+      <div class="src">One-line question · Nemotron 3.5 Lightning · Token Factory</div>
+      <div class="brow"><div class="lab"><span>default</span><span class="c-bad"><span data-count="342" data-at="L19+4.6">0</span> output tokens</span></div><div class="track"><i style="background:var(--bad)" data-grow="L19+4.6" data-w="1"></i></div></div>
+      <div class="brow" data-at="L19+9.6"><div class="lab"><span>reasoning_effort: "none"</span><span class="c-ok">6 tokens</span></div><div class="track"><i style="background:var(--ok)" data-grow="L19+9.8" data-w="0.0175"></i></div></div>
+      <div class="brow" data-at="L19+10.4"><div class="lab"><span>the answer itself</span><span>6 tokens</span></div><div class="track"><i style="background:var(--muted)" data-grow="L19+10.6" data-w="0.0175"></i></div></div>
+    </div>
+  </section>
+
+  <!-- 15 cta -->
+  <section class="scene" id="cta">
+    <div class="big" data-at="0.1"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round"><path d="M4 19h16"/><path d="M5 15c5 0 9-4 14-9"/></svg></span>Switchyard</div>
+    <div class="tag" data-at="0.9">Every AI call on the right Nemotron model, <span class="lime">with tests that prove it.</span></div>
+    <div class="links">
+      <span class="chip c-ok" data-at="4.2" id="demoUrl">Live demo · 16-178-179-90.sslip.io · Judge tour</span>
+      <span class="chip c-o" data-at="4.8" style="color:#cfd8d2">github.com/ayushagarwalhere/switchyard</span>
+    </div>
+    <div class="built" data-at="5.4">NVIDIA NEMOTRON · NEBIUS TOKEN FACTORY · NEBIUS SERVERLESS · TAVILY</div>
+  </section>
+
+  <div id="subs"></div>
+  <div id="mascot"></div>
+</div>
+
+<audio id="vo" src="submission/voice.m4a" preload="auto"></audio>
+<script src="submission/timeline.js"></script>
+<script src="submission/mascot.js"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const TL = window.TIMELINE;
+const FPS = 30;
+
+/* ---------- content from data ---------- */
+const CALLS = ["extract_event_info", "parse_event_details", "generate_confirmation", "route_calendar_request", "handle_new_event",
+  "handle_modify_event", "validate_calendar_request", "check_security", "get_plan", "write_section", "review_post"];
+$("#hookCalls").innerHTML = CALLS.map((c, i) => `<span data-at="${(0.6 + i * 0.22).toFixed(2)}">${c}<em>gpt-4o</em></span>`).join("");
+const FB = ["json_schema field descriptions never reach the model", "Model IDs use four naming styles", "The smallest Nemotron is the slowest",
+  "Structured answers can burn the whole token budget", "No Nemotron embedding model", "Nebius CLI: auth errors that don't say what to do",
+  "Nemotron thinks by default, and it's billed", "Which Nemotron for which kind of call (48 call sites)"];
+$("#fbList").innerHTML = FB.map((f, i) => `<span class="${i === 6 ? "on" : ""}" data-at="${(0.8 + i * 0.3).toFixed(2)}"><i>${i + 1}</i>${f}</span>`).join("");
+
+/* ---------- timing ---------- */
+const sceneOf = Object.fromEntries(TL.scenes.map((s) => [s.id, s]));
+const lineStart = (k) => TL.lines[k].start;
+// "L6+1.2" = 1.2 s after narration line 6 starts; a plain number = seconds after the scene starts
+function abs(at, scene) {
+  const m = /^L(\d+)\+?([\d.]*)$/.exec(at);
+  return m ? lineStart(+m[1]) + (+m[2] || 0) : scene.start + parseFloat(at);
+}
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = (p) => 1 - Math.pow(1 - p, 3);
+const lerp = (a, b, p) => a + (b - a) * p;
+
+const scenes = TL.scenes.map((s) => {
+  const el = document.getElementById(s.id);
+  return {
+    s, el,
+    ats: $$("[data-at]", el).map((e) => ({ e, t: abs(e.dataset.at, s) })),
+    strikes: $$("[data-strike]", el).map((e) => ({ e, t: abs(e.dataset.strike, s) })),
+    counts: $$("[data-count]", el).map((e) => ({ e, t: abs(e.dataset.at || "0", s), v: +e.dataset.count, dec: +(e.dataset.dec || 0) })),
+    grows: $$("[data-grow]", el).map((e) => ({ e, t: abs(e.dataset.grow, s), w: +e.dataset.w })),
+    kbs: $$("[data-kb]", el).map((e) => ({ e, k: e.dataset.kb.split(/\s+/).map(Number) })),
+  };
+});
+
+function renderScene(o, t) {
+  const { s, el } = o;
+  const fadeIn = clamp((t - s.start + 0.15) / 0.45), fadeOut = 1 - clamp((t - s.end) / 0.4);
+  const vis = Math.min(fadeIn, fadeOut);
+  el.style.visibility = vis > 0 ? "visible" : "hidden";
+  el.style.opacity = vis;
+  if (vis <= 0) return;
+  for (const { e, t: at } of o.ats) {
+    const p = ease(clamp((t - at) / 0.6));
+    e.style.opacity = p;
+    e.style.transform = e.classList.contains("hl") ? `scale(${lerp(1.06, 1, p)})` : `translateY(${(1 - p) * 26}px)`;
+  }
+  for (const { e, t: at } of o.strikes) e.style.transform = `scaleX(${ease(clamp((t - at) / 0.5))})`;
+  for (const { e, t: at, v, dec } of o.counts) e.textContent = (v * ease(clamp((t - at) / 1.4))).toFixed(dec);
+  for (const { e, t: at, w } of o.grows) e.style.transform = `scaleX(${w * ease(clamp((t - at) / 1.2))})`;
+  for (const { e, k } of o.kbs) {
+    const p = clamp((t - s.start) / (s.end - s.start));
+    const q = p * p * (3 - 2 * p);
+    e.style.transform = `translate(${lerp(k[0], k[3], q)}px, ${lerp(k[1], k[4], q)}px) scale(${lerp(k[2], k[5], q)})`;
+  }
+}
+
+function lineAt(t) {
+  for (let k = TL.lines.length - 1; k >= 0; k--) {
+    const l = TL.lines[k];
+    if (t >= l.start - 0.05) return t <= l.start + l.dur + 0.35 ? l : null;
+  }
+  return null;
+}
+function chapterAt(t) {
+  let c = TL.lines[0].chapter;
+  for (const l of TL.lines) if (t >= l.start - 0.3) c = l.chapter;
+  return c;
+}
+
+/* ---------- mascot (the web app's guide bird), small, bottom right ---------- */
+let bird = null;
+async function initBird() {
+  const holder = $("#mascot");
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1.5);
+  renderer.setSize(190, 190, false);
+  renderer.setClearColor(0x000000, 0);
+  holder.append(renderer.domElement);
+  const bin = Uint8Array.from(atob(window.MASCOT_B64), (c) => c.charCodeAt(0)).buffer;
+  const gltf = await new Promise((res, rej) => new GLTFLoader().parse(bin, "", res, rej));
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(24, 1, 0.01, 20);
+  cam.position.set(0, 0.32, 1.85);
+  cam.lookAt(0, 0.215, 0);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.5));
+  const rig = new THREE.Group();
+  rig.add(gltf.scene);
+  scene.add(rig);
+  gltf.scene.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+  gltf.scene.updateMatrixWorld(true);
+  const bones = {};
+  gltf.scene.traverse((o) => { if (o.isBone) { const k = o.name.replace(/_\d+$/, ""); if (!bones[k]) bones[k] = o; } });
+  const rest = new Map();
+  Object.values(bones).forEach((b) => rest.set(b, { q: b.quaternion.clone(), s: b.scale.clone() }));
+  const pq = new THREE.Quaternion();
+  const axisIn = (b, v) => { b.parent.getWorldQuaternion(pq); return v.clone().applyQuaternion(pq.invert()).normalize(); };
+  const X = new THREE.Vector3(1, 0, 0), Z = new THREE.Vector3(0, 0, 1);
+  const ax = {};
+  ["Arm_L", "Arm_R", "Hand_L", "Hand_R"].forEach((n) => bones[n] && (ax[n] = axisIn(bones[n], Z)));
+  ["BeakBottom", "BeakTop", "Face"].forEach((n) => bones[n] && (ax[n] = axisIn(bones[n], X)));
+  [["Eye_L", -0.3], ["Eye_R", 0.3]].forEach(([n, a]) => {
+    const b = bones[n]; if (!b) return;
+    const r = rest.get(b);
+    r.q.premultiply(new THREE.Quaternion().setFromAxisAngle(axisIn(b, Z), a));
+    b.quaternion.copy(r.q); r.s.x *= 0.42; r.s.z *= 2.0;
+  });
+  const tq = new THREE.Quaternion();
+  const turn = (n, angle) => { const b = bones[n], a = ax[n]; if (!b || !a) return; tq.setFromAxisAngle(a, angle); b.quaternion.copy(tq).multiply(rest.get(b).q); };
+  const squash = (n, k) => { const b = bones[n]; if (!b) return; b.scale.copy(rest.get(b).s); b.scale.z *= k; };
+  const WAVE = ["intro", "cta", "eco"].map((id) => sceneOf[id].start);
+  bird = (t) => {
+    const l = lineAt(t);
+    let beak = 0;
+    if (l && t >= l.start) { const f = Math.floor((t - l.start) * FPS); beak = (l.env[f] ?? 0) * 0.42; }
+    let flap = 0;
+    for (const w of WAVE) { const d = t - w; if (d > 0 && d < 1.6) flap = Math.max(flap, Math.sin((d / 1.6) * Math.PI)); }
+    rig.rotation.y = -0.38 + Math.sin(t * 0.45) * 0.08;
+    rig.position.y = Math.sin(t * 2.1) * 0.01 + flap * 0.03;
+    rig.rotation.z = Math.sin(t * 1.05) * 0.03;
+    const wing = Math.sin(t * 2.4) * 0.07 + Math.sin(t * 17) * 0.5 * flap;
+    turn("Arm_L", wing); turn("Arm_R", -wing); turn("Hand_L", wing * 0.6); turn("Hand_R", -wing * 0.6);
+    turn("BeakBottom", beak); turn("BeakTop", -beak * 0.25);
+    turn("Face", Math.sin(t * 0.9) * 0.04 + beak * 0.1);
+    const ph = (t % 3.7) / 3.7, lid = ph > 0.96 ? Math.abs((ph - 0.98) / 0.02) * 0.9 + 0.1 : 1;
+    squash("Eye_L", lid); squash("Eye_R", lid);
+    renderer.render(scene, cam);
+  };
+}
+
+/* ---------- frame ---------- */
+function render(t) {
+  for (const o of scenes) renderScene(o, t);
+  $("#bar i").style.transform = `scaleX(${clamp(t / TL.total)})`;
+  $("#chapter").textContent = chapterAt(t);
+  const l = lineAt(t);
+  $("#subs").textContent = l ? l.text : "";
+  if (bird) bird(t);
+}
+
+function fit() {
+  const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+  $("#stage").style.transform = `translate(${(innerWidth - 1920 * s) / 2}px, ${(innerHeight - 1080 * s) / 2}px) scale(${s})`;
+}
+const params = new URLSearchParams(location.search);
+const rendering = params.has("render");
+if (!rendering) { fit(); addEventListener("resize", fit); }
+
+window.__duration = TL.total;
+window.__seek = (t) => render(t);
+const imgs = $$("img").map((im) => (im.complete ? Promise.resolve() : new Promise((r) => { im.onload = im.onerror = r; })));
+window.__ready = Promise.all([document.fonts.ready, initBird().catch((e) => console.error(e)), ...imgs]).then(() => { render(0); return true; });
+
+if (!rendering) {
+  const vo = $("#vo");
+  let t0 = +(params.get("t") || 0), playing = false;
+  window.__ready.then(() => render(t0));
+  document.addEventListener("click", () => {
+    if (playing) { vo.pause(); playing = false; return; }
+    vo.currentTime = t0; vo.play(); playing = true;
+    const tick = () => { if (!playing) return; t0 = vo.currentTime; render(t0); requestAnimationFrame(tick); };
+    tick();
+  });
+}
+</script>
+</body>
+</html>

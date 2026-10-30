@@ -36,7 +36,8 @@ def main() -> None:
         browser = p.chromium.launch(channel=args.channel or None)
         w, h = (int(x) for x in args.size.split("x"))
         page = browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=1)
-        page.goto((HERE / args.page).as_uri() + "?render=1")
+        page.set_default_timeout(180_000)          # fonts and three.js come from CDNs; give a slow network time
+        page.goto((HERE / args.page).as_uri() + "?render=1", wait_until="domcontentloaded")
         page.wait_for_function("window.__ready !== undefined")
         page.evaluate("window.__ready")
         page.wait_for_timeout(500)
