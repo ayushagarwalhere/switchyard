@@ -140,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--explain", action="store_true", help="with logs: Nemotron explains why the app is failing")
     dp.add_argument("--name", help="app name on Nebius (default: the folder name)")
     dp.add_argument("--platform", default=None, help="Nebius platform (default cpu-d3)")
-    dp.add_argument("--preset", default=None, help="vCPU/RAM preset for the platform (default 4vcpu-16gb)")
+    dp.add_argument("--preset", default=None, help="vCPU/RAM preset for the platform (default 2vcpu-8gb)")
     dp.add_argument("--private", action="store_true", help="require a bearer token (default: public web app)")
     dp.add_argument("--force", action="store_true", help="deploy even with blocking security findings")
     dp.add_argument("--local", action="store_true",

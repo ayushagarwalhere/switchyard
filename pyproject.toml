@@ -1,7 +1,7 @@
 [project]
 name = "switchyard"
-version = "0.4.0"
-description = "Migrate LLM apps to NVIDIA Nemotron on Nebius Token Factory, with per-call proof of quality."
+version = "0.4.1"
+description = "Find out which LLM calls in your app can move to NVIDIA Nemotron on Nebius Token Factory, proven per call, and get the PR."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

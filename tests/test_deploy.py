@@ -114,3 +114,39 @@ def test_local_deploy_runs_the_same_image_without_nebius(app):
     assert deploy.status("notes", shell=sh)["state"] == "running"
     deploy.delete("notes", shell=sh)
     assert ("docker", "rm", "-f", "switchyard-notes") in sh.calls
+
+
+def test_switchyard_demo_settings_and_tavily_key_ship_with_the_app(app):
+    import os
+    (app / ".env").write_text("LLM_MODEL_SUMMARIZE=nvidia/Nemotron-3_5-Lightning\nOTHER_SECRET=x\n"
+                              "SWITCHYARD_PUBLIC=1\nSWITCHYARD_RUN_BUDGET=0.50\nSWITCHYARD_RUN_CODE=old-code\n"
+                              "TAVLY_API_KEY=tvly-typo-name\n")
+    (app / ".env.local").write_text("SWITCHYARD_RUN_CODE='demo-code'\nexport SWITCHYARD_EXEC=0\n"
+                                    "SWITCHYARD_EXEC_TIMEOUT=5\n")
+    env = deploy.app_env(app)
+    assert env["SWITCHYARD_PUBLIC"] == "1" and env["SWITCHYARD_RUN_BUDGET"] == "0.50" and env["SWITCHYARD_EXEC"] == "0"
+    assert env["SWITCHYARD_RUN_CODE"] == "demo-code"           # .env.local wins, quotes stripped
+    assert env["TAVILY_API_KEY"] == "tvly-typo-name"           # any of config.TAVILY_NAMES, under the main name
+    assert "OTHER_SECRET" not in env and "SWITCHYARD_EXEC_TIMEOUT" not in env and "TAVLY_API_KEY" not in env
+
+    sh = FakeShell()
+    deploy.Deployer(app, shell=sh, emit=lambda *_: None, http=lambda u, t: 200).run()
+    create_call = next(c for c in sh.calls if c[:4] == ("nebius", "ai", "endpoint", "create"))
+    envs = {create_call[i + 1] for i, a in enumerate(create_call) if a == "--env"}
+    assert {"SWITCHYARD_PUBLIC=1", "SWITCHYARD_RUN_CODE=demo-code", "SWITCHYARD_EXEC=0",
+            "TAVILY_API_KEY=tvly-typo-name", "NEBIUS_API_KEY=tf-test-key"} <= envs
+    # a CPU platform and the small preset by default (Nebius would otherwise pick a GPU platform)
+    flat = " ".join(create_call)
+    assert f"--platform {deploy.DEFAULT_PLATFORM}" in flat and f"--preset {deploy.DEFAULT_PRESET}" in flat
+    if not os.environ.get("SWITCHYARD_NEBIUS_PRESET"):
+        assert deploy.DEFAULT_PRESET == "2vcpu-8gb"
+    if not os.environ.get("SWITCHYARD_NEBIUS_PLATFORM"):
+        assert deploy.DEFAULT_PLATFORM == "cpu-d3"
+
+    # locally the values go through the environment, never the docker command line
+    sh2 = FakeShell()
+    deploy.Deployer(app, shell=sh2, emit=lambda *_: None, http=lambda u, t: 200, local=True).run()
+    run = next(c for c in sh2.calls if c[:2] == ("docker", "run"))
+    assert "SWITCHYARD_PUBLIC" in run and "TAVILY_API_KEY" in run
+    assert not any("demo-code" in x or "tvly-" in x for x in run)
+    assert sh2.env["SWITCHYARD_RUN_CODE"] == "demo-code"

@@ -2,31 +2,36 @@
 
 [![ci](https://github.com/ayushagarwalhere/switchyard/actions/workflows/ci.yml/badge.svg)](https://github.com/ayushagarwalhere/switchyard/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
-**The Nebius ecosystem for everyday developers.** Switchyard routes every AI call in your app to the right NVIDIA Nemotron model on Nebius Token Factory, with tests that prove each switch. Around that core it helps you build the app, review and secure it, ship it to Nebius, and keep it running.
+**Live demo: <https://16-178-179-90.sslip.io/>** · [Judge tour](https://16-178-179-90.sslip.io/#tour) · no key or sign-up needed (recorded runs, the judge tour, and a free audit of any public GitHub repo)
 
-| | Command | What it does for you |
-|---|---|---|
-| **Route** (the core) | `switchyard run` | Tests every AI call on Nemotron Lightning, Super and Ultra and moves each one to the cheapest model that passes. Calls that don't pass stay where they are. |
-| | `switchyard router` | A live OpenAI-compatible gateway: each AI feature goes to its tested model, falls back to the next tier when a call fails, and is metered (cost, latency, fallbacks) per feature. |
-| **Build** | `switchyard new "<idea>"` | Nemotron writes a working app (backend, frontend, AI features, Dockerfile, tests) and fixes it until the tests pass. |
-| | `switchyard code "<change>"` | A Nemotron coding agent edits the app, runs the tests and fixes its own mistakes. |
-| **Review** | `switchyard pr-review` | A PR comment for every change to AI code: cost at your volume, the Nemotron model worth testing, security issues on the changed lines. |
-| **Secure** | `switchyard secure` | Leaked keys, committed `.env`, vulnerable dependencies, debug mode, open CORS, root containers, prompt injection in every LLM call. |
-| **Ship** | `switchyard deploy` | Container → Nebius Container Registry → Nebius Serverless endpoint, health-checked. `--local` runs the same image on your machine. |
-| **Run** | `switchyard oncall` | Keeps deployed apps up with [WispOps](switchyard/oncall_agent/VENDORED.md): finds the change that broke it, proposes one fix (restart or roll back), applies it when you approve, proves it recovered. `switchyard deploy logs --explain` has Nemotron read the logs. |
+**Find out which LLM calls in your app can move to NVIDIA Nemotron, proven per call, and get the PR.**
 
-Everything is also in the web app (with a sandbox that runs your app inside the page), in coding agents (skills and an MCP server), in GitHub Actions and in Python.
+Switchyard tests every LLM call in your code on Nemotron 3.5 Lightning, 3 Super and 3 Ultra on Nebius Token Factory, moves each call to the cheapest model that passes its tests, and opens a pull request with the evidence. Calls that don't pass stay on their current model. A live router then sends each feature to its tested model, with fallback and metering. Around that core, Switchyard is a small Nebius ecosystem for everyday developers: it also builds, reviews, secures, deploys and runs the app.
+
+| | Command | What it does | Status |
+|---|---|---|---|
+| **Migrate** (the core) | `switchyard run` (`--pr` opens the PR) | Tests every LLM call on Lightning, Super and Ultra and moves each one to the cheapest model that passes. Writes the patch, runs the patched code against Token Factory, and attacks each switched prompt. | **Proven** |
+| **Audit** | `switchyard audit`, or the free audit box on the live demo | Leaked keys, model output reaching `eval`/shell/SQL, user input in system prompts, missing timeouts and token caps; `--probes` attacks each prompt on Nemotron. | **Proven** |
+| **Route** | `switchyard router` | An OpenAI-compatible gateway: each AI feature goes to its tested model, falls back to the next tier when a call fails, and is metered (cost, latency, fallbacks) per feature. | **Working** |
+
+**Status**: **Proven** = recorded real runs on Token Factory that you can open on the live demo. **Working** = covered by the offline test suite (`tests/`) and used by us, but no recorded public run. **Preview** = implemented and unit-tested, not exercised against the live service.
+
+| On a real repo ([ai-cookbook](https://github.com/daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns), 11 LLM calls, run `20261029-142754-6b1f`) | |
+|---|---|
+| Calls switched | **7 of 11**, all to Nemotron 3.5 Lightning. A second run with Tavily inputs also switched 7, to a different mix (5 Lightning, 1 Super, 1 Ultra): see [How Tavily is used](#how-tavily-is-used) |
+| Tests passed by the chosen model | 8/8, 7/8, 7/8, 7/7, 7/7 (1 set aside), 6/6 (2 set aside), 6/6 (2 set aside): per call in [Results](#results) |
+| Cheaper per request than GPT-4o (what those 7 calls use today) | **97.6%** (about $699.89 → $16.80 a month at 100k requests per call, list prices) |
+| Cheaper per request than GPT-4o-mini, had the calls been on it | **60.0%** (about $41.99 → $16.80 a month at the same volume; Lightning lists at 40% of GPT-4o-mini's price for both input and output tokens) |
+| Cost of the whole study on Token Factory | **$0.50** (791 Nemotron calls, 8.1 minutes) |
+| Calls it refused to switch | **4** long-form writing calls: 3 where no Nemotron model reached the bar, 1 where only Ultra did and it costs more than the call's current GPT-4o-mini |
+
+<!-- TODO(run): add a row "Held-out repo | X of Y switched" once the held-out run is published (repo, run id, X, Y). -->
+
+**Judges:** the [5-minute guide](docs/JUDGES.md) shows where to look. Open the [live demo](https://16-178-179-90.sslip.io/) and press **Judge tour**. To browse the same recorded runs locally with no key: `pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.1" && switchyard serve`, then press **Judge tour**.
 
 ![Switchyard: a recorded migration of ai-cookbook, with the tests and bake-off behind each switch](docs/img/run.jpg)
 
-| On a real repo ([ai-cookbook](https://github.com/daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns), 11 LLM calls) | |
-|---|---|
-| Calls switched to Nemotron 3.5 Lightning | **7 of 11** (a second run, with Tavily inputs, also switched 7) |
-| Cheaper per request on those calls | **97.6%** (about $699.89 → $16.80 a month at 100k requests per call) |
-| Cost of the whole study on Token Factory | **$0.50** (791 Nemotron calls, 8 minutes) |
-| Calls it refused to switch | **4** long-form writing calls, where no cheaper model reached the bar |
-
-**Judges:** the [5-minute guide](docs/JUDGES.md) shows where to look. To browse both recorded runs with no key: `pipx install git+https://github.com/ayushagarwalhere/switchyard && switchyard serve`, then press **Judge tour**.
+## Why
 
 Most production apps send every request to one frontier model. Many of those calls are routing, classification, extraction or short rewrites that a smaller open model handles just as well, at a fraction of the price. Nobody switches because nobody knows *which* calls are safe to move.
 
@@ -35,7 +40,7 @@ Switchyard answers that per call site. Point it at a repository and it:
 1. **Scans** the code (static analysis, nothing is executed) for every LLM call. In Python: OpenAI and Anthropic SDK (`chat.completions`, `responses.create/parse`, `beta…parse`, `messages.create`), LiteLLM, and LangChain. In JavaScript/TypeScript: the OpenAI and Anthropic SDKs and the Vercel AI SDK (`generateText`, `streamText`, `generateObject`). It also recovers each call's prompt template, parameters and output schema.
 2. **Investigates** each call like an engineer: a Nemotron agent with read-only tools (search, read file) finds who calls it, with what real inputs, and which fields of the answer drive the app's logic.
 3. **Understands** each call: what task it does, what inputs look like, and how the app parses the answer.
-4. **Writes tests**: typical and tricky cases with ideal reference answers, seeded with the real inputs found in the code. **Tavily** supplies real-world material where the task needs it.
+4. **Writes tests**: typical and tricky cases with ideal reference answers, seeded with the real inputs found in the code. **Tavily** supplies real-world material where the task needs it ([how](#how-tavily-is-used)).
 5. **Evaluates** every Nemotron tier on every case: hard checks in code (valid JSON, schema match, correct labels and fields) plus a Nemotron grader. With an `OPENAI_API_KEY`, the app's **original model answers the same tests** for a head-to-head.
 6. **Repairs**: if a cheaper model *nearly* passes, Nemotron Ultra adapts the prompt and the cheaper model is re-tested.
 7. **Patches** the code: each call moves to the cheapest model that clears the quality bar, calls that fail stay on the original model, and every changed file is re-parsed and compiled.
@@ -44,24 +49,25 @@ Switchyard answers that per call site. Point it at a repository and it:
 
 **Use it the way you work:** a CLI (`switchyard run` in your app's folder), your coding agent (agent skills for Claude Code/Codex/Cursor, or the MCP server), GitHub Actions (migrate-and-open-a-PR, a nightly check, an audit in the Security tab), Python (`switchyard.migrate(".")`), or the web app, which includes a free audit of any public GitHub repo. New to it? `switchyard demo` creates a sample app to try everything on.
 
-> Results from a recorded run are in [Results](#results).
+## Also in the box
 
-## Build and ship (for vibe coders)
+The rest of the ecosystem: tools for writing, reviewing, securing, shipping and running an app on Nemotron and Nebius. Every model step runs on NVIDIA Nemotron through Nebius Token Factory.
 
-Every step runs on NVIDIA Nemotron through Nebius Token Factory, and the app ends up on Nebius AI Cloud.
+| Step | Command | What happens | Status |
+|---|---|---|---|
+| **Write** | `switchyard new "<idea>"` | Nemotron Super plans the app (features, API, AI features), writes a FastAPI backend and an HTML/JS frontend, and Switchyard adds the parts that must be right every time: a non-root Dockerfile, pinned requirements, a Token Factory client with timeouts, smoke tests, `.gitignore`. It runs the tests and fixes failures from the output, then commits the first version. About one cent. | Working |
+| **Change** | `switchyard code "<change>"` | A Nemotron coding agent reads and searches the app, writes files (inside the app only, never `.env`), runs the tests and fixes failures. Nothing is committed: review with `git diff`. | Working |
+| **Secure** | `switchyard secure` | Secrets anywhere in the repo, `.env` committed to git, dependencies with published vulnerabilities (OSV), debug mode, CORS open to every site, containers running as root or on unpinned images, and the full LLM-call audit. SARIF for GitHub code scanning. Free. | Working |
+| **Review** | `switchyard pr-review` | A PR comment for every change to AI code: cost at your volume, the Nemotron model worth testing, security issues on the changed lines. Free, static. | Working |
+| **Optimize** | `switchyard run` | The migration above. Apps from `switchyard new` give every AI feature its own call and its own `LLM_MODEL_<NAME>` override, so it works on them directly. | Proven |
+| **Deploy locally** | `switchyard deploy --local` | Runs `secure` (blocking findings stop it), writes a Dockerfile if the app has none (FastAPI, Flask, Node, Next.js or static), builds the image and runs it in local Docker with the same env and health check. Free. | Working |
+| **Deploy to Nebius** | `switchyard deploy` | The same steps, then builds for linux/amd64, pushes to Nebius Container Registry, creates a Nebius Serverless endpoint (`--platform cpu-d3` by default) with the app's Token Factory key and model overrides, waits for the URL and health-checks it. Redeploying replaces the old endpoint once the new one is healthy. | **Preview**: our Nebius tenant is suspended until billing is activated, so this path has not been run live ([details](#limits)) |
+| **Run** | `switchyard oncall`, `switchyard deploy status / logs / delete` | On-call with [WispOps](switchyard/oncall_agent/VENDORED.md) (vendored): finds the change that broke a deployed app, proposes one fix (restart or roll back), applies it when you approve, proves it recovered. `deploy logs --explain` has Nemotron read the logs. `switchyard check` re-runs the saved tests in CI so a prompt change can't silently break a switched call. | Working |
+| **Everywhere** | `switchyard mcp`, `npx skills add ayushagarwalhere/switchyard`, the GitHub Action | The same flows as MCP tools, agent skills (`switchyard`, `switchyard-audit`, `switchyard-build`, `switchyard-ship`) and Action modes (migrate, check, audit, review). | Working |
 
-| Step | Command | What happens |
-|---|---|---|
-| **Write** | `switchyard new "<idea>"` | Nemotron Super plans the app (features, API, AI features), writes a FastAPI backend and an HTML/JS frontend, and Switchyard adds the parts that must be right every time: a non-root Dockerfile, pinned requirements, a Token Factory client with timeouts, smoke tests, `.gitignore`. It runs the tests and fixes failures from the output, then commits the first version. About one cent. |
-| **Change** | `switchyard code "<change>"` | A Nemotron coding agent reads and searches the app, writes files (inside the app only, never `.env`), runs the tests and fixes failures. Nothing is committed: review with `git diff`. |
-| **Secure** | `switchyard secure` | Secrets anywhere in the repo, `.env` committed to git, dependencies with published vulnerabilities (OSV), debug mode, CORS open to every site, containers running as root or on unpinned images, and the full LLM-call audit. SARIF for GitHub code scanning. Free. |
-| **Optimize** | `switchyard run` | The migration below: each AI feature moves to the cheapest Nemotron model that passes its tests. Apps from `switchyard new` give every AI feature its own call and its own `LLM_MODEL_<NAME>` override, so this works on them directly. |
-| **Deploy** | `switchyard deploy` | Runs `secure` (blocking findings stop it), writes a Dockerfile if the app has none (FastAPI, Flask, Node, Next.js or static), builds for linux/amd64, pushes to Nebius Container Registry, creates a Nebius Serverless endpoint with the app's Token Factory key and model overrides, waits for the URL and health-checks it. Redeploying replaces the old endpoint once the new one is healthy. |
-| **Run** | `switchyard deploy status / logs / delete` | State and URL, container logs, and delete (endpoints bill until deleted). `switchyard check` re-runs the saved tests in CI so a prompt change can't silently break a switched call. |
+The same steps are in the web app (**Build & ship** panel, with a sandbox that runs your app inside the page), the MCP server (`create_app`, `change_app`, `secure_app`, `deploy_app`, `deployment_status`, `delete_deployment`), and the agent skills.
 
-The same steps are in the web app (**Build & ship** panel: type an idea, then Secure, Change, Deploy), the MCP server (`create_app`, `change_app`, `secure_app`, `deploy_app`, `deployment_status`, `delete_deployment`), and the agent skills (`switchyard-build`, `switchyard-ship`).
-
-Deploying needs Docker and the [Nebius CLI](https://docs.nebius.com/cli/install) logged in (`nebius profile create`). The CLI runs on Linux and macOS; on Windows, Switchyard calls it inside WSL.
+Deploying to Nebius needs Docker and the [Nebius CLI](https://docs.nebius.com/cli/install) logged in (`nebius profile create`), on a tenant with billing active. The CLI runs on Linux and macOS; on Windows, Switchyard calls it inside WSL.
 
 ## How Switchyard uses NVIDIA Nemotron and Nebius Token Factory
 
@@ -81,11 +87,39 @@ The "Run cost" tab shows exactly what each job spent.
 
 The migrated app talks to Token Factory through its existing SDK: Switchyard only changes the client's `base_url` / `api_key` and the `model` of each call (behind an env var, so rollback is one line). If some calls stay on the original provider, their client is untouched and migrated calls get a dedicated Token Factory client.
 
+## How Tavily is used
+
+Tavily gives the test writer real-world inputs (articles, tickets, event announcements, product pages) so a call's tests aren't only text Nemotron made up.
+
+- **At most one search per call site.** After Nemotron Super has read a call site, it proposes a web search that would find realistic inputs for that call (or none, when the inputs are short or synthetic). Switchyard runs one Tavily search for it (`max_results=5`, basic depth) and hands the results to Nemotron Ultra, which writes the call's tests. The titles and URLs are saved in the run and shown with each call's tests in the web app.
+- **Cached on disk** in `~/.switchyard/cache/tavily/`, keyed by the query, so re-running the same repo costs no Tavily requests.
+- **At most 12 new searches per run** (`config.TAVILY_MAX_PER_RUN`, set with `SWITCHYARD_TAVILY_MAX`); cached answers don't count. Without a `TAVILY_API_KEY`, or if a search fails, tests use generated inputs only and the run says so once.
+- **Where in the code:** `tavily_sources()` and the call in `Run.process_site()` in [switchyard/pipeline.py](switchyard/pipeline.py). Tavily is called during a live `switchyard run`; browsing a recorded run on the demo makes no Tavily calls.
+- **Recorded run with Tavily inputs:** `20261029-150732-a954` ([open it on the live demo](https://16-178-179-90.sslip.io/#20261029-150732-a954:sites), [run.json](runs/demo/20261029-150732-a954/run.json)). All 11 call sites got sources (10 with 5 results, 1 with 3: 53 in all).
+
+<!-- TODO(screenshot): docs/img/tavily.jpg — one call's tests in the web app with its Tavily sources listed. Then add: ![A call's tests with the Tavily sources they were written from](docs/img/tavily.jpg) -->
+
+**Did Tavily change any decision?** Not measurably: the Tavily run's per-call decisions differ from the run just before it without Tavily inputs (`20261029-145534-3d40`, same repo commit) on 4 of 11 calls, but two runs without Tavily inputs (`…-6b1f` and `…-3d40`) already differ from each other on 5 of 11, so with one run of each we can't attribute any switch to Tavily.
+
+| Call | `…-6b1f` (no Tavily) | `…-3d40` (no Tavily key set) | `…-a954` (Tavily) |
+|---|---|---|---|
+| extract_event_info | Lightning + adapted prompt | Super | Lightning + adapted prompt |
+| parse_event_details | Lightning | Lightning | kept |
+| generate_confirmation | kept | Super | Super |
+| route_calendar_request | Lightning | Lightning | Lightning + adapted prompt |
+| handle_new_event | Lightning | kept | Lightning + adapted prompt |
+| handle_modify_event | Lightning | Ultra | Lightning |
+| validate_calendar_request | Lightning + adapted prompt | Lightning + adapted prompt | Lightning + adapted prompt |
+| check_security | Lightning | Ultra | Ultra |
+| get_plan, write_section, review_post | kept | kept | kept |
+| **Switched** | 7 (97.6% cheaper than GPT-4o) | 7 (85.0%) | 7 (93.4%) |
+
+The Tavily run's switched calls include Super and Ultra, so they're 93.4% cheaper than GPT-4o (about $742.03 → $49.17 a month at 100k requests per call) but about 10% *more* expensive than the same calls would be on GPT-4o-mini ($44.52). `…-3d40` is a local run record and isn't in the published demo.
+
 ## Other tools
 
-- **Tavily**: finds real-world inputs (articles, tickets, product pages) so tests aren't only synthetic.
 - **LangSmith** (optional): set `LANGSMITH_API_KEY` and every model call Switchyard makes is traced.
-- **OpenAI** (optional): set `OPENAI_API_KEY` and the app's original model runs on the same tests as a baseline (billed by OpenAI, tracked separately from Token Factory spend).
+- **OpenAI** (optional): set `OPENAI_API_KEY` and the app's original model runs on the same tests as a baseline (billed by OpenAI, tracked separately from Token Factory spend). The recorded runs above were made without it.
 
 ## Quick start
 
@@ -146,7 +180,7 @@ npx skills add ayushagarwalhere/switchyard
 **MCP clients** (Cursor, Claude Desktop, Windsurf, VS Code): install with the MCP extra and add the server:
 
 ```bash
-pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"
+pipx install "switchyard[mcp] @ git+https://github.com/ayushagarwalhere/switchyard@v0.4.1"
 ```
 ```json
 {"mcpServers": {"switchyard": {"command": "switchyard", "args": ["mcp"]}}}
@@ -182,7 +216,7 @@ Add a `NEBIUS_API_KEY` repository secret, copy [examples/switchyard-migrate.yml]
 The CI guard is a single step, and `switchyard apply` adds it for you:
 
 ```yaml
-- uses: ayushagarwalhere/switchyard@v0.4.0
+- uses: ayushagarwalhere/switchyard@v0.4.1
   with:
     nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
 ```
@@ -247,26 +281,32 @@ The export uses the `INPUT:` / `GOLDEN:` column style that crowd platforms accep
 ## Results
 
 <!-- results:start -->
-Recorded run `20261029-142754-6b1f` on [daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns](https://github.com/daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns):
+Recorded run `20261029-142754-6b1f` on [daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns](https://github.com/daveebbelaar/ai-cookbook/tree/main/patterns/workflows/2-workflow-patterns) ([open it on the live demo](https://16-178-179-90.sslip.io/#20261029-142754-6b1f:sites)):
 
 - **7 of 11** call sites switched (7 on Nemotron 3.5 Lightning); 4 kept on the original model.
-- **97.6% cheaper** per request across the switched calls (list prices).
-- **2** call site(s) only passed after Nemotron Ultra adapted the prompt.
+- **97.6% cheaper** per request across the switched calls than GPT-4o, their current model (list prices). Against GPT-4o-mini prices the same calls would be **60.0% cheaper**.
+- **2** call sites only passed after Nemotron Ultra adapted the prompt.
 - The whole analysis cost **$0.50** in Token Factory credits (791 model calls, 8.1 min).
 
-| Call site | Task | Was | Now | Tests passed | Saving |
-|---|---|---|---|---|---|
-| `1-prompt-chaining.py:69` extract_event_info | extraction | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 100% | 97.6% |
-| `1-prompt-chaining.py:94` parse_event_details | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 100% | 97.6% |
-| `1-prompt-chaining.py:117` generate_confirmation | generation | `gpt-4o` | kept | – | – |
-| `2-routing.py:77` route_calendar_request | routing | `gpt-4o` | Nemotron 3.5 Lightning | 100% | 97.6% |
-| `2-routing.py:100` handle_new_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 88% | 97.6% |
-| `2-routing.py:128` handle_modify_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 88% | 97.6% |
-| `3-parallizaton.py:48` validate_calendar_request | classification | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 100% | 97.6% |
-| `3-parallizaton.py:64` check_security | classification | `gpt-4o` | Nemotron 3.5 Lightning | 100% | 97.6% |
-| `4-orchestrator.py:139` get_plan | generation | `gpt-4o-mini` | kept | – | – |
-| `4-orchestrator.py:171` write_section | generation | `gpt-4o-mini` | kept | – | – |
-| `4-orchestrator.py:201` review_post | other | `gpt-4o-mini` | kept | – | – |
+"Tests passed" counts the chosen model's passes out of the tests that counted. A test is **set aside** when Lightning, Super and Ultra all failed it on the same field with the same value, which points at a wrong reference answer; set-aside tests are listed in the run and never counted as passes. The bar is 85% of the counted tests. Each call got 8 tests; `check_security` got 7 because the test writer returned 7.
+
+<!-- TODO(run): fill the "Original model on the same tests" column (GPT-4o / GPT-4o-mini head-to-head, e.g. "8/8") from a rerun with OPENAI_API_KEY set, and give its run id here. -->
+
+| Call site | Task | Was | Now | Tests passed | Original model on the same tests | Saving |
+|---|---|---|---|---|---|---|
+| `1-prompt-chaining.py:69` extract_event_info | extraction | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 6/6 (2 set aside) | – | 97.6% |
+| `1-prompt-chaining.py:94` parse_event_details | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 8/8 | – | 97.6% |
+| `1-prompt-chaining.py:117` generate_confirmation | generation | `gpt-4o` | kept (best: Ultra 6/8) | – | – | – |
+| `2-routing.py:77` route_calendar_request | routing | `gpt-4o` | Nemotron 3.5 Lightning | 7/7 (1 set aside) | – | 97.6% |
+| `2-routing.py:100` handle_new_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 7/8 | – | 97.6% |
+| `2-routing.py:128` handle_modify_event | extraction | `gpt-4o` | Nemotron 3.5 Lightning | 7/8 | – | 97.6% |
+| `3-parallizaton.py:48` validate_calendar_request | classification | `gpt-4o` | Nemotron 3.5 Lightning + adapted prompt | 6/6 (2 set aside) | – | 97.6% |
+| `3-parallizaton.py:64` check_security | classification | `gpt-4o` | Nemotron 3.5 Lightning | 7/7 | – | 97.6% |
+| `4-orchestrator.py:139` get_plan | generation | `gpt-4o-mini` | kept (best: Ultra 5/8) | – | – | – |
+| `4-orchestrator.py:171` write_section | generation | `gpt-4o-mini` | kept (best: Ultra 6/8) | – | – | – |
+| `4-orchestrator.py:201` review_post | other | `gpt-4o-mini` | kept (Ultra passed 7/8 but costs more than `gpt-4o-mini`) | – | – | – |
+
+The "Original model" column is empty because this run was made without an OpenAI key; quality here is measured against reference answers written by Nemotron Ultra.
 
 What Switchyard itself spent, by job:
 
@@ -283,8 +323,16 @@ What Switchyard itself spent, by job:
 | Understand call sites | Nemotron 3 Super | 11 | $0.0064 |
 <!-- results:end -->
 
+**How the savings are computed.** For each switched call, Switchyard averages the tokens in and out over the chosen model's test runs and prices them at list prices per 1M tokens (in/out): GPT-4o $2.50/$10.00, GPT-4o-mini $0.15/$0.60, Lightning $0.06/$0.24, Super $0.30/$0.90, Ultra $1.00/$3.00 (`switchyard/config.py`). For the 7 switched calls above, one request each costs $0.0069989 on GPT-4o, $0.0004199 on GPT-4o-mini and $0.0001680 on Lightning; at 100k requests per call a month that is $699.89, $41.99 and $16.80.
+
+<!-- TODO(run): Held-out repo: X of Y switched (repo link, run id, cost). -->
+
 ## Limits
 
+- **One run per repo is a sample, not a verdict.** Tests are generated fresh each run, so a call near the bar can switch in one run and stay in another: two runs on ai-cookbook without Tavily inputs disagreed on 5 of 11 calls (see [How Tavily is used](#how-tavily-is-used)). Three long-form writing calls were kept and `validate_calendar_request` moved to Lightning in all three runs. `switchyard check` re-runs the saved tests, so a switch you applied stays tested.
+- **Dates without a year.** When a test's input gives no year ("next Friday at 3pm"), the deterministic date check accepts any valid date, because the reference's year is a guess. A model that picks the wrong day passes that check; only the grader can catch it.
+- **One model family checks itself.** Lightning, Super and Ultra are all Nemotron, and so are the test writer (Ultra) and the grader (Super). A test is set aside as disputed when all three candidates fail it the same way; models from one family can share a mistake, so a correct reference can be set aside. Set-aside tests are listed per call and never counted as passes. The original-model baseline (`OPENAI_API_KEY`), recorded production answers (`--traces`) and `switchyard review` (human raters) are the checks from outside the family; the recorded runs here used none of them.
+- **Deploying to Nebius is a preview.** `switchyard deploy` (Container Registry + Serverless endpoint) is implemented and covered by unit tests against a scripted Nebius CLI, but it hasn't been run against a live tenant: our Nebius tenant is suspended until billing is activated. `switchyard deploy --local` runs the same image, env and health check in local Docker. The public demo runs on AWS EC2, not on Nebius.
 - Python and JavaScript/TypeScript. In Python, OpenAI SDK, LiteLLM and LangChain `ChatOpenAI` calls are rewritten automatically. Plain Anthropic `messages.create()` calls are rewritten too: they go through a small shim that returns Anthropic-shaped responses from Token Factory. Async, streaming and tool-use Anthropic calls are tested and get a target model in the report, but you port them by hand.
 - JavaScript/TypeScript (Next.js, Node, Vercel AI SDK): OpenAI SDK and AI SDK (`generateText`, `streamText`, `generateObject`, `streamObject`) calls are tested and rewritten; Anthropic SDK calls, calls inside `"use client"` components (the key must stay on the server) and calls on a client returned by a function (`getClient().chat...`) are tested and listed for a hand port. Migrated JS calls go through a separate `tokenFactory` client, so the app's own OpenAI client (embeddings, images) is untouched. JS code isn't executed, so the runtime check and the `eval`/shell data-flow rule (AU2) are Python-only; edited JS files get a syntax check (`node --check` for .js, a bracket/string balance check for .ts).
 - Prompts built far from the call site are tested as a single user turn (the investigation step tells the test writer what the real inputs look like).
@@ -311,9 +359,12 @@ switchyard/
   coder.py        `switchyard code`: tool-using Nemotron coding agent
   secure.py       whole-app checks: secrets, OSV dependencies, config, Dockerfile
   deploy.py       Dockerfile, Nebius Container Registry, Serverless endpoints
+  router.py       `switchyard router`: live OpenAI-compatible gateway, per-feature routes, fallback, metering
+  prreview.py     `switchyard pr-review`: cost, Nemotron fit and security for a PR's AI code
+  oncall.py       `switchyard oncall`: runs the vendored WispOps agent (oncall_agent/) on deployed apps
   mcp_server.py   the same flows as MCP tools
   gitops.py       apply / pr: branch, patch, CI workflow, pull request
-action.yml        GitHub Action (check / migrate / audit)
+action.yml        GitHub Action (check / migrate / audit / review)
 skills/           agent skills for Claude Code, Codex, Cursor
 tests/          offline tests (a scripted stand-in for Token Factory)
 ```

@@ -19,7 +19,7 @@ image, pushes it to Nebius Container Registry and creates a Nebius Serverless en
 ## 1. Requirements
 
 ```bash
-switchyard --version          # if missing: pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"
+switchyard --version          # if missing: pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.1"
 docker --version              # Docker Desktop or Docker Engine
 nebius profile list           # the Nebius CLI, logged in (on Windows: inside WSL Ubuntu)
 ```
@@ -30,6 +30,11 @@ If the Nebius CLI is missing, the user installs it and logs in once (it opens a 
 curl -sSL https://artifacts.nebius.cloud/cli/install.sh | bash
 exec -l $SHELL && nebius profile create
 ```
+
+The installer puts the binary in `~/.nebius/bin`; it's on `PATH` only after the shell is reloaded (`exec -l $SHELL`).
+The Nebius tenant needs billing activated: a new tenant and its projects stay suspended until then, and while
+`nebius` reads still work, creating the endpoint fails. To try the whole flow for free first, use
+`switchyard deploy --local` (same image, env and health check, in local Docker).
 
 ## 2. Secure (free)
 
@@ -45,7 +50,8 @@ Explain CRITICAL and HIGH findings first; they block the deploy. Fix the ones th
 switchyard deploy
 ```
 
-It prints each step and ends with `Live: https://...`. The app gets the user's Token Factory key as an environment
+It prints each step and ends with `Live: https://...`. Apps run on a CPU platform (`cpu-d3`; set
+`SWITCHYARD_NEBIUS_PLATFORM` to change it), because `nebius ai endpoint create` otherwise defaults to a GPU platform. The app gets the user's Token Factory key as an environment
 variable for its AI features, plus any `LLM_MODEL_*` overrides from `.env`. Use `--private` for an endpoint that
 needs a bearer token.
 

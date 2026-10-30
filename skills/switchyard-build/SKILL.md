@@ -23,7 +23,7 @@ the tests and fixes failures. Both cost about a cent or two of Token Factory cre
 switchyard --version
 ```
 
-If missing, ask the user first, then: `pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"`.
+If missing, ask the user first, then: `pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.1"`.
 
 ## 2. A new app
 

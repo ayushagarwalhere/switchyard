@@ -1,26 +1,40 @@
 # Judging Switchyard in 5 minutes
 
-## What to look at, in order
+**Track:** Coding and Agentic Engineering. **What it is:** find out which LLM calls in an app can move to NVIDIA Nemotron on Nebius Token Factory, proven per call, and get the PR; plus a live router, and tools to build, review, secure, deploy and run the app ("Also in the box" in the [README](../README.md#also-in-the-box), each marked Proven, Working or Preview).
+
+## 1. Open the live demo
+
+**<https://16-178-179-90.sslip.io/>**. No key, no sign-up, no spend. It serves the recorded runs, the judge tour and the free repo audit.
 
 | Time | What | Where |
 |---|---|---|
+| 3 min | The judge tour of a real migration | [Judge tour](https://16-178-179-90.sslip.io/#tour) (or the **Judge tour** button) |
+| 1 min | The bill for the switched calls at your volume | [Savings](https://16-178-179-90.sslip.io/#20261029-142754-6b1f:savings) |
+| 1 min | The patch, its runtime check and the security audit | [Patch](https://16-178-179-90.sslip.io/#20261029-142754-6b1f:patch) |
+| 1 min | The run with Tavily inputs: open any call's tests to see the web sources they were written from | [Tavily run](https://16-178-179-90.sslip.io/#20261029-150732-a954:sites) |
+| 1 min | A free audit of any public GitHub repo's LLM calls (static, no key) | the **Free security audit** box on the home page |
 | 3 min | The video: problem, cause, solution, results, every feature | Devpost page ([source](../video/switchyard.html), every number from the recorded run) |
-| 3 min | The judge tour of a real migration | the web app, **Judge tour** |
-| 1 min | The two recorded runs side by side: 7/11 both times; the second used Tavily inputs for every call | the web app, **Runs** |
 | 2 min | Where Nemotron and Token Factory are used, and what is deterministic | below |
 
-No live link at hand? Browse the same recorded runs locally, with no key and no spend:
+<!-- TODO(access-code): if live runs are enabled on the demo (deploy/ec2.sh --with-key), put the access code in the Devpost testing instructions (not here, this file is public) and say so in one line here. -->
+Live runs (a new migration from the browser) need an access code on the public demo, so a public URL can't drain our Token Factory credits. Everything above works without one.
+
+**The two recorded runs.** Both are on the same repo (ai-cookbook, 11 calls) and both switched 7 of 11. `20261029-142754-6b1f` used generated tests only and moved all 7 to Lightning. `20261029-150732-a954` gave every call's test writer Tavily search results and moved 5 to Lightning, 1 to Super and 1 to Ultra. Decisions differ on 3 calls, which is within what we saw between two runs without Tavily (5 of 11 differed); see [How Tavily is used](../README.md#how-tavily-is-used).
+
+**Where the Tavily call happens at runtime:** in a live `switchyard run`, once per call site, in `tavily_sources()` called from `Run.process_site()` in [`pipeline.py`](../switchyard/pipeline.py), cached on disk, at most 12 searches per run. Browsing recorded runs makes no Tavily calls.
+
+## 2. If the demo is down: the same runs locally (no key)
 
 ```bash
-pipx install git+https://github.com/ayushagarwalhere/switchyard
+pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.1"
 switchyard serve          # downloads the published runs once, then open http://127.0.0.1:8000/#tour
 ```
 
-Direct links once it's running: `#20261029-142754-6b1f:patch` (the diff), `#20261029-142754-6b1f:savings` (the bill at your volume), `#20261029-150732-a954:sites` (the Tavily run: open any call's tests to see the web sources).
+The same direct links work on the local server: `#20261029-142754-6b1f:patch`, `#20261029-142754-6b1f:savings`, `#20261029-150732-a954:sites`.
 
-## Fastest path (no setup)
+## What the judge tour shows
 
-1. Open the live demo and press **Judge tour**. It walks through one complete, recorded migration using the run's real data:
+1. **Judge tour** walks through one complete, recorded migration using the run's real data:
    - the scan,
    - one call site up close,
    - the tests Nemotron Ultra wrote,
@@ -68,10 +82,12 @@ Partly, and Switchyard is built to limit how much that matters:
 - With recorded production traffic (`--traces`), the original model's real answers become the references.
 - `switchyard review` exports a balanced sample for human raters (Toloka-ready) and reports how often the grader agrees with people.
 
+What it doesn't fix, said plainly: the two recorded runs had no OpenAI key, so their quality bar is Nemotron Ultra's reference answers, graded by Nemotron Super. A test is set aside as disputed when Lightning, Super and Ultra all fail it the same way; they're one model family and can share a mistake, so a correct reference can be set aside (set-aside tests are listed per call, never counted as passes). And when a test's input has no year, the date check accepts any valid date. The full list is in the [README's Limits](../README.md#limits).
+
 ## Run it yourself (about 3 minutes, under $1 of credits)
 
 ```bash
-pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.0"
+pipx install "git+https://github.com/ayushagarwalhere/switchyard@v0.4.1"
 switchyard setup                     # paste a Token Factory key; it's checked and saved
 git clone --depth 1 https://github.com/daveebbelaar/ai-cookbook && cd ai-cookbook/patterns/workflows/2-workflow-patterns
 switchyard audit                     # free: security findings for every LLM call

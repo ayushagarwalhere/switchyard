@@ -221,4 +221,4 @@ def test_action_review_mode_and_example_stay_in_sync():
     assert example["permissions"]["pull-requests"] == "write"
     steps = example["jobs"]["review"]["steps"]
     assert steps[0]["with"]["fetch-depth"] == 0
-    assert steps[1]["uses"] == "ayushagarwalhere/switchyard@v0.4.0" and steps[1]["with"]["command"] == "review"
+    assert steps[1]["uses"] == "ayushagarwalhere/switchyard@v0.4.1" and steps[1]["with"]["command"] == "review"

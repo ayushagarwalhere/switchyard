@@ -147,7 +147,13 @@ def _field_ok(got, want, key: str = "", inputs_text: str = "") -> bool | None:
         if gd is None:
             return False                                    # must still be a valid date
         if not re.search(r"\b(19|20)\d{2}\b", inputs_text):
-            return True     # "next Friday" with no date in the input: any valid date is a fair reading
+            # Known limit: with no year anywhere in the inputs ("next Friday", "June 14"), this check can't tell
+            # which date is right, so ANY valid date passes it. The test's reference was resolved against the
+            # day the test was written and the model resolves against its own idea of today, so comparing them
+            # would fail correct answers. The grader still reads the answer; this hard check only ensures it's
+            # a date. When the inputs carry today's date (e.g. an app's `date_context` "Today is Monday,
+            # June 10, 2024"), the year is present and the date is compared exactly below.
+            return True
         return gd.replace(tzinfo=None) == wd.replace(tzinfo=None)
     if isinstance(want, str) and len(want) > 40:
         return None                                         # prose: the grader compares meaning, not characters
@@ -171,11 +177,28 @@ def _is_num(x) -> bool:
 # (measured: without them Super named an event "create_calendar_event" and Lightning dropped the time
 # from an ISO 8601 date). The patch adds this message to migrated .parse() calls; tests use it too.
 SCHEMA_PREFIX = "Reply with JSON matching this schema (follow each field's description):\n"
+# how a patched call's schema message reads back through the scanner: the prefix, the schema as one {{slot}},
+# then (optionally) the Ultra hint the patch merged into the same message
+_PATCHED_SCHEMA = re.compile(re.escape(SCHEMA_PREFIX) + r"\{\{[^{}]*\}\}\s*(.*)\Z", re.S)
+
+
+def _without_schema(messages: list[dict]) -> list[dict]:
+    """Drop a schema message the patch added (run_case adds its own), keeping a hint merged into it."""
+    out = []
+    for m in messages:
+        content = str(m.get("content", ""))
+        if not content.startswith(SCHEMA_PREFIX):
+            out.append(m)
+            continue
+        rest = _PATCHED_SCHEMA.match(content)
+        if rest and rest.group(1).strip():
+            out.append({**m, "content": rest.group(1).strip()})
+    return out
 
 
 def run_case(tf: TokenFactory, site: dict, analysis: dict, case: dict, model_key: str, hint: str = "") -> dict:
     p = site.get("params", {})
-    rendered = [m for m in agents.render(site["messages"], case["inputs"]) if not m["content"].startswith(SCHEMA_PREFIX)]
+    rendered = agents.render(_without_schema(site["messages"]), case["inputs"])
     out_schema = (p.get("output_schema") or {}).get("schema")
     if out_schema and not str(model_key).startswith(config.SOURCE_PREFIX):
         rendered = [{"role": "system", "content": SCHEMA_PREFIX + json.dumps(out_schema)}] + rendered
@@ -228,14 +251,25 @@ def evaluate_model(tf: TokenFactory, site: dict, analysis: dict, cases: list[dic
 
 
 def disputed_cases(evals: dict) -> list[int]:
-    """Cases whose reference is probably wrong: every model failed it, on the same field, with the same value.
+    """Cases whose reference is probably wrong, set aside from pass rates (and listed in the report).
 
-    Independent models agreeing with each other against the test writer is a signal about the test, not
-    the models. Those cases are dropped from pass rates (and listed in the report), never silently passed.
+    The rule: every Nemotron size tested (Lightning, Super, Ultra) failed the case on the same field with
+    the same value. They are one model family and can share a blind spot, so their agreement alone is weak
+    evidence. When the app's original model was run on the same tests as a baseline, it is the independent
+    check: the case is set aside only if the baseline also got that field wrong (if it matched the reference,
+    or errored, the case counts). With no baseline, the family's agreement is all there is to go on.
+    Set-aside cases are never counted as passes.
     """
-    runs = [e for k, e in evals.items() if "+" not in k]
+    from_source = [k for k in evals if "+" not in k and k.startswith(config.SOURCE_PREFIX)]
+    runs = [e for k, e in evals.items() if "+" not in k and k not in from_source]
+    baseline = evals[from_source[0]] if from_source else None
     if len(runs) < 2:
         return []
+
+    def wrong_fields(r: dict) -> dict:
+        return {c["name"]: json.dumps(c.get("got"), sort_keys=True) for c in r.get("checks", [])
+                if not c["ok"] and c["name"].startswith("field ")}
+
     out = []
     for r0 in runs[0]["results"]:
         cid = r0["case"]
@@ -244,11 +278,15 @@ def disputed_cases(evals: dict) -> list[int]:
             continue
         fields = None
         for r in rows:
-            bad = {c["name"]: json.dumps(c.get("got"), sort_keys=True) for c in r.get("checks", [])
-                   if not c["ok"] and c["name"].startswith("field ")}
+            bad = wrong_fields(r)
             fields = bad if fields is None else {k: v for k, v in fields.items() if bad.get(k) == v}
-        if fields:
-            out.append(cid)
+        if not fields:
+            continue
+        if baseline is not None:
+            b = next((r for r in baseline["results"] if r["case"] == cid), None)
+            if b is None or b["passed"] or b.get("error") or not set(wrong_fields(b)) & set(fields):
+                continue
+        out.append(cid)
     return out
 
 

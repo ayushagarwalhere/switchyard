@@ -348,8 +348,9 @@ class Run:
             if disputed:
                 evals = {k: evaluate.exclude(v, disputed) for k, v in evals.items()}
                 out["disputed"] = disputed
-                self.emit("step", step="disputed", message=f"{sid}: {len(disputed)} test(s) set aside: every model "
-                          "gave the same answer against the reference, so the reference is likely wrong")
+                self.emit("step", step="disputed", message=f"{sid}: {len(disputed)} test(s) set aside: every Nemotron size "
+                          "gave the same wrong value (and the original model, when tested, also disagreed with the "
+                          "reference), so the reference is likely wrong")
             out["evals"] = evals
 
             decision = decide(evals, self.target)

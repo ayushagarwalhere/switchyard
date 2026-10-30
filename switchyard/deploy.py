@@ -22,7 +22,8 @@ from . import config
 
 STATE = config.HOME / "deployments.json"
 DEFAULT_PLATFORM = os.environ.get("SWITCHYARD_NEBIUS_PLATFORM", "cpu-d3")
-DEFAULT_PRESET = os.environ.get("SWITCHYARD_NEBIUS_PRESET", "4vcpu-16gb")
+# a CPU platform (without --platform Nebius picks a GPU one); 2 vCPU / 8 GB is plenty for a web app
+DEFAULT_PRESET = os.environ.get("SWITCHYARD_NEBIUS_PRESET", "2vcpu-8gb")
 
 
 class DeployError(RuntimeError):
@@ -126,18 +127,31 @@ def dockerfile(info: dict) -> str:
             "RUN sed -i 's/listen       8080;/listen 8080;/' /etc/nginx/conf.d/default.conf\nEXPOSE 8080\n")
 
 
+# Names copied from the app's .env / .env.local into the container (anything else there stays local).
+# SWITCHYARD_* are Switchyard's own public-demo switches: deploying Switchyard itself must keep public mode,
+# the run code, the per-visitor budget and the code-execution switch, or it would start wide open on your key.
+APP_ENV = re.compile(r"LLM_MODEL_[A-Z0-9_]+|TOKEN_FACTORY_BASE_URL|SWITCHYARD_PUBLIC|SWITCHYARD_RUN_CODE"
+                     r"|SWITCHYARD_RUN_BUDGET|SWITCHYARD_EXEC")
+
+
 def app_env(root: Path) -> dict[str, str]:
-    """Env vars the deployed app gets: the Token Factory key (for its AI features) and LLM_MODEL_* overrides."""
+    """Env vars the deployed app gets: the Token Factory key (for its AI features), LLM_MODEL_* overrides,
+    Switchyard's public-demo settings and a Tavily key, when the app's .env / .env.local set them."""
     env = {}
     key = config.api_key()
     if key:
         env["NEBIUS_API_KEY"] = key
-    for f in (root / ".env", root / ".env.local"):
+    for f in (root / ".env", root / ".env.local"):          # .env.local wins
         if f.exists():
             for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
-                m = re.match(r"\s*(LLM_MODEL_[A-Z0-9_]+|TOKEN_FACTORY_BASE_URL)\s*=\s*(\S+)", line)
-                if m:
-                    env[m.group(1)] = m.group(2).strip("'\"")
+                m = re.match(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\S+)", line)
+                if not m:
+                    continue
+                name, value = m.group(1), m.group(2).strip("'\"")
+                if name in config.TAVILY_NAMES:
+                    env["TAVILY_API_KEY"] = value               # the name the app reads first
+                elif APP_ENV.fullmatch(name):
+                    env[name] = value
     return env
 
 

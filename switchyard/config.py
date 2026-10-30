@@ -159,12 +159,50 @@ def model(key: str) -> Model:
     return MODELS[key]
 
 
-def baseline_key() -> str | None:
-    """OpenAI key for running the original model on the same tests. Off with SWITCHYARD_BASELINE=0."""
-    key = os.environ.get("OPENAI_API_KEY", "")
-    if os.environ.get("SWITCHYARD_BASELINE", "1") != "1" or not key.startswith("sk-") or "placeholder" in key:
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+GITHUB_MODELS_BASE_URL = "https://models.github.ai/inference"
+
+
+def _baseline() -> tuple[str, str | None, str] | None:
+    """(key, base_url, model prefix) for running the original model on the same tests, or None.
+    OPENAI_API_KEY -> OpenAI; GITHUB_MODELS_TOKEN -> GitHub Models (free tier, rate-limited);
+    OPENROUTER_API_KEY -> OpenRouter. Off with SWITCHYARD_BASELINE=0."""
+    if os.environ.get("SWITCHYARD_BASELINE", "1") != "1":
         return None
-    return key
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if key.startswith("sk-") and "placeholder" not in key:
+        return (key, OPENROUTER_BASE_URL, "openai/") if key.startswith("sk-or-") else (key, None, "")
+    key = os.environ.get("GITHUB_MODELS_TOKEN", "")
+    if key.startswith(("github_pat_", "ghp_", "gho_")):
+        return key, GITHUB_MODELS_BASE_URL, "openai/"
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    if key.startswith("sk-") and "placeholder" not in key:
+        return key, OPENROUTER_BASE_URL, "openai/"
+    return None
+
+
+def baseline_key() -> str | None:
+    b = _baseline()
+    return b[0] if b else None
+
+
+def baseline_via_openrouter() -> bool:
+    b = _baseline()
+    return bool(b) and b[1] == OPENROUTER_BASE_URL
+
+
+def baseline_base_url() -> str | None:
+    """None = the OpenAI SDK default (api.openai.com)."""
+    b = _baseline()
+    return b[1] if b else None
+
+
+def baseline_model_id(model_id: str) -> str:
+    """OpenRouter and GitHub Models name OpenAI models `openai/<id>`."""
+    b = _baseline()
+    if b and b[2] and "/" not in model_id:
+        return b[2] + model_id
+    return model_id
 
 
 KEY_NAMES = ("NEBIUS_API_KEY", "TOKEN_FACTORY_API_KEY", "NEBIUS_TOKEN_FACTORY_KEY", "NEBIUS_TOKEN_FACTORY_API_KEY")

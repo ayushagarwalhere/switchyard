@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: ayushagarwalhere/switchyard@v0.4.0
+      - uses: ayushagarwalhere/switchyard@v0.4.1
         with:
           nebius-api-key: ${{{{ secrets.NEBIUS_API_KEY }}}}
           path: {path}
@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: ayushagarwalhere/switchyard@v0.4.0
+      - uses: ayushagarwalhere/switchyard@v0.4.1
         id: audit
         with:
           command: audit

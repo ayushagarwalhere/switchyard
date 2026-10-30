@@ -77,10 +77,13 @@ class TokenFactory:
         # flipped off if the endpoint rejects Nemotron's thinking switch
         self.thinking_toggle = os.environ.get("SWITCHYARD_THINKING_TOGGLE", "1") == "1"
         self.fallbacks: list[str] = []
-        # the app's original model, run on the same tests for a head-to-head (OpenAI key; billed by OpenAI)
+        # the app's original model, run on the same tests for a head-to-head (OpenAI or OpenRouter key; billed there)
         bkey = config.baseline_key()
-        self.baseline = OpenAI(api_key=bkey, max_retries=3, timeout=120) if bkey else None
+        self.baseline = OpenAI(api_key=bkey, base_url=config.baseline_base_url(), max_retries=3, timeout=120) if bkey else None
         self.baseline_usage = Usage()
+        # hard cap on what the original model may cost (billed by OpenAI/OpenRouter, not Token Factory)
+        self.baseline_budget = float(os.environ.get("SWITCHYARD_BASELINE_BUDGET", "1.00"))
+        self._baseline_slots = threading.BoundedSemaphore(int(os.environ.get("SWITCHYARD_BASELINE_CONCURRENCY", "2")))
 
     def complete(self, model_key: str, messages: list[dict], *, role: str = "candidate", temperature: float | None = None,
                  max_tokens: int | None = None, json_mode: bool = False, reasoning: bool | None = None,
@@ -88,7 +91,7 @@ class TokenFactory:
         model = config.model(model_key)
         source = model_key.startswith(config.SOURCE_PREFIX)
         if source and self.baseline is None:
-            return Completion("", None, 0, 0, 0.0, 0.0, model_key, error="no OPENAI_API_KEY for the baseline")
+            return Completion("", None, 0, 0, 0.0, 0.0, model_key, error="no OPENAI_API_KEY, GITHUB_MODELS_TOKEN or OPENROUTER_API_KEY for the baseline")
         client = self.baseline if source else self.client
         if not source and self.traced is not None and (config.TRACE == "all" or role in config.TRACED_ROLES):
             with self._lock:
@@ -98,10 +101,14 @@ class TokenFactory:
         usage = self.baseline_usage if source else self.usage
         if source:
             reasoning = None  # Nemotron's thinking switch means nothing to the original provider
+            with self._lock:
+                if self.baseline_usage.cost >= self.baseline_budget:
+                    return Completion("", None, 0, 0, 0.0, 0.0, model_key,
+                                      error=f"baseline budget of ${self.baseline_budget:.2f} reached")
         with self._lock:
             if self.budget is not None and self.usage.cost >= self.budget:
                 raise BudgetExceeded(f"budget of ${self.budget:.2f} reached")
-        kwargs: dict = {"model": model.id, "messages": messages}
+        kwargs: dict = {"model": config.baseline_model_id(model.id) if source else model.id, "messages": messages}
         if temperature is not None:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
@@ -121,7 +128,7 @@ class TokenFactory:
             kwargs["extra_body"] = extra_body
         t0 = time.perf_counter()
         try:
-            with self._slots:
+            with (self._baseline_slots if source else self._slots):
                 resp = client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001 - surface any API error as a failed sample
             msg_e = str(e)

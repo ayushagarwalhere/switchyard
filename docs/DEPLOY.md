@@ -1,5 +1,9 @@
 # Deploying the public demo
 
+**The live instance:** <https://16-178-179-90.sslip.io/> (AWS EC2, Docker behind Caddy for HTTPS; judge tour at [#tour](https://16-178-179-90.sslip.io/#tour)). It serves the recorded runs, the judge tour and the free repo audit, none of which need a key.
+
+This page is about hosting Switchyard's own web app. Deploying *your* app with `switchyard deploy` is covered in the [README](../README.md#also-in-the-box): the Nebius Serverless path is a preview (implemented and unit-tested; our Nebius tenant is suspended until billing is activated, so it hasn't run live), and `switchyard deploy --local` runs the same image in local Docker.
+
 The public demo serves recorded runs to everyone and allows live runs only with an access code, so a public URL can't drain your Token Factory credits.
 
 | Env var | Purpose |
@@ -49,11 +53,11 @@ switchyard serve --host 0.0.0.0 --port 8000
 
 ## AWS EC2 (Amazon Linux)
 
-One command from your machine, once the instance's security group allows inbound TCP 22 (your IP) and 80 (anywhere):
+This is how the live instance runs. One command from your machine, once the instance's security group allows inbound TCP 22 (your IP), 80 and 443 (anywhere):
 
 ```bash
 deploy/ec2.sh <public-ip-or-dns> ~/Downloads/switchyard.pem              # replays, judge tour, free audit
 deploy/ec2.sh <public-ip-or-dns> ~/Downloads/switchyard.pem --with-key   # + live runs behind an access code
 ```
 
-It installs Docker, clones the repo, copies any featured runs from `runs/demo`, builds the image and runs it on port 80 with `--restart unless-stopped`. With `--with-key` the key goes to a `chmod 600` env file on the server (never into the image), live runs need the printed access code, and each run is capped at $0.50.
+It installs Docker, clones the repo, copies any featured runs from `runs/demo`, builds the image and runs it with `--restart unless-stopped`. Caddy sits in front and gets a Let's Encrypt certificate automatically. With a bare IP the site name is `<ip-with-dashes>.sslip.io` (a free DNS name that resolves to that IP; the live instance is `16-178-179-90.sslip.io`), and plain HTTP or the bare IP redirects to it. Set `DOMAIN=your.domain` to use your own name (its DNS A record must point at the instance). With `--with-key` the key goes to a `chmod 600` env file on the server (never into the image), live runs need the printed access code, and each run is capped at $0.50.

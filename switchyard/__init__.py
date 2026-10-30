@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __all__ = ["scan", "migrate", "Result", "__version__"]
 
 

@@ -96,11 +96,52 @@ def _import_line(tree: ast.Module) -> int:
     return line
 
 
-def _has_os_import(tree: ast.Module) -> bool:
+def _has_import(tree: ast.Module, module: str) -> bool:
+    """`import <module>` (unaliased) at the top level of the file."""
     for stmt in tree.body:
-        if isinstance(stmt, ast.Import) and any(a.name == "os" and a.asname is None for a in stmt.names):
+        if isinstance(stmt, ast.Import) and any(a.name == module and a.asname is None for a in stmt.names):
             return True
     return False
+
+
+def _has_os_import(tree: ast.Module) -> bool:
+    return _has_import(tree, "os")
+
+
+def _pydantic_v1(repo: Path) -> bool:
+    """The repo pins pydantic 1.x, whose models have .schema() rather than .model_json_schema()."""
+    pin = re.compile(r"(?im)^\s*[\"']?pydantic\s*(?:\[[^\]]*\])?\s*(?:==\s*1\.|~=\s*1\.|<\s*2(?:\.0)*\b|<=\s*1\.)")
+    for name in ("requirements.txt", "requirements.in", "pyproject.toml", "setup.py", "setup.cfg", "Pipfile"):
+        p = repo / name
+        try:
+            if p.is_file() and pin.search(p.read_text(encoding="utf-8", errors="replace")):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _schema_anchor(tree: ast.Module, cls: str) -> int | None:
+    """Last line of the top-level statement that defines or imports `cls`, or None if it isn't one.
+
+    A module-level `_SCHEMA_X = json.dumps(X.model_json_schema())` must come after that statement."""
+    root = cls.split(".")[0]
+    found = None
+    for stmt in tree.body:
+        if isinstance(stmt, ast.ClassDef) and stmt.name == root:
+            found = stmt.end_lineno or stmt.lineno
+        elif isinstance(stmt, ast.Assign) and any(isinstance(t, ast.Name) and t.id == root for t in stmt.targets):
+            found = stmt.end_lineno or stmt.lineno
+        elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            for a in stmt.names:
+                bound = a.asname or (a.name.split(".")[0] if isinstance(stmt, ast.Import) else a.name)
+                if bound == root:
+                    found = stmt.end_lineno or stmt.lineno
+    return found
+
+
+def _schema_const(cls: str) -> str:
+    return "_SCHEMA_" + (re.sub(r"[^A-Za-z0-9]+", "_", cls).strip("_").upper() or "MODEL")
 
 
 def _client_call(src: str, client: dict) -> str:
@@ -239,6 +280,7 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
     used_env: set[str] = set()
     routes: list[dict] = []
     changed: list[str] = []
+    schema_method = "schema" if _pydantic_v1(repo) else "model_json_schema"
 
     # If every OpenAI call in the repo migrates, point the existing clients at Token Factory
     # (smallest diff). If some calls stay on the original provider, leave the clients alone and
@@ -256,7 +298,8 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
         if mode == "rewrite-clients":
             for c in clients_by_file.get(rel, []):
                 ed.replace((c["line"], c["col"], c["end_line"], c["end_col"]), _client_call(text, c))
-        needs_sync = needs_async = needs_anthropic = needs_lc = False
+        needs_sync = needs_async = needs_anthropic = needs_lc = needs_json = False
+        schema_consts: dict[str, tuple[str, int | None]] = {}   # class -> (constant, line it goes after)
         for s in by_file.get(rel, []):
             site, dec = s["site"], s["decision"]
             model_id = config.MODELS[dec["model"]].id
@@ -300,7 +343,7 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                 needs_async |= bool(site.get("awaited"))
                 needs_sync |= not site.get("awaited")
             key = "input" if site["sdk"] == "openai-responses" else "messages"
-            prefix = []
+            parts = []      # pieces of ONE system message put in front of the app's own messages
             # .parse(response_format=Model): put the schema's field descriptions in the prompt, because
             # Token Factory only enforces the shape (see evaluate.SCHEMA_PREFIX)
             if site["sdk"] in ("openai", "litellm") and (site.get("params") or {}).get("output_schema"):
@@ -309,21 +352,28 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                         l1, c1, l2, c2 = site["arg_spans"][k]
                         cls = text[ed.pos(l1, c1):ed.pos(l2, c2)]
                         if re.fullmatch(r"[A-Za-z_][\w.]*", cls):
-                            prefix.append(f'{{"role": "system", "content": {json.dumps(SCHEMA_PREFIX)} + '
-                                          f'__import__("json").dumps(getattr({cls}, "model_json_schema", getattr({cls}, "schema", dict))())}}')
+                            needs_json = True
+                            if cls not in schema_consts:
+                                schema_consts[cls] = (_schema_const(cls), _schema_anchor(tree, cls))
+                            const, anchor = schema_consts[cls]
+                            # a class defined inside a function can't be read at import time: inline it
+                            schema = const if anchor else f"json.dumps({cls}.{schema_method}())"
+                            parts.append(f"{json.dumps(SCHEMA_PREFIX)} + {schema}")
                         break
             if dec.get("hint"):
-                prefix.append(f'{{"role": "system", "content": {json.dumps(dec["hint"])}}}')
-            if prefix and key in site["arg_spans"]:
+                parts.append(json.dumps(("\n\n" if parts else "") + dec["hint"]))
+            if parts and key in site["arg_spans"]:
                 l1, c1, l2, c2 = site["arg_spans"][key]
                 orig = text[ed.pos(l1, c1):ed.pos(l2, c2)]
-                ed.replace(site["arg_spans"][key], f'[{", ".join(prefix)}] + list({orig})')
+                ed.replace(site["arg_spans"][key], f'[{{"role": "system", "content": {" + ".join(parts)}}}] + list({orig})')
             routes.append({"file": rel, "line": site["line"], "function": site["function"], "env": env,
                            "from": site.get("model") or site.get("model_expr"), "to": model_id,
                            "hint": dec.get("hint", ""), "pass_rate": dec["pass_rate"], "env_value": env_value})
         if not ed.edits:
             continue
         header = ""
+        if needs_json and not _has_import(tree, "json"):
+            header += "import json\n"
         if not _has_os_import(tree):
             header += "import os\n"
         have = {a.name for s in tree.body if isinstance(s, ast.ImportFrom) and s.module == "openai"
@@ -336,9 +386,23 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                                 and any(a.name == "ChatOpenAI" and a.asname is None for a in st.names) for st in tree.body):
             header += "from langchain_openai import ChatOpenAI\n"
         line = _import_line(tree)
+        last_import = max((s.end_lineno or s.lineno for s in tree.body if isinstance(s, (ast.Import, ast.ImportFrom))), default=line - 1)
+        # the schema each migrated .parse() call shows the model, computed once at import time, right after the
+        # statement that defines (or imports) its class
+        const_lines: dict[int, list[str]] = {}
+        for cls, (const, anchor) in schema_consts.items():
+            if anchor:
+                const_lines.setdefault(anchor, []).append(f"{const} = json.dumps({cls}.{schema_method}())\n")
+        for anchor, defs in const_lines.items():
+            if anchor == last_import and (needs_sync or needs_async or needs_anthropic):
+                continue    # goes in the client block below
+            block = ("\n" + ("\n" if anchor > last_import else "")
+                     + "# Switchyard: the schema migrated .parse() calls show Nemotron\n" + "".join(defs))
+            if anchor >= len(ed.lines) and not text.endswith(("\n", "\r")):
+                block = "\n" + block
+            ed.insert_at_line(anchor + 1, block)
         if needs_sync or needs_async or needs_anthropic:
             # define the client after the last top-level import so the module's own imports run first
-            last_import = max((s.end_lineno or s.lineno for s in tree.body if isinstance(s, (ast.Import, ast.ImportFrom))), default=line - 1)
             client_def = "\n# Switchyard: calls migrated to NVIDIA Nemotron on Nebius Token Factory\n"
             kw = f'base_url=os.environ.get("{ENV_BASE}", "{config.DEFAULT_BASE_URL}"), api_key=os.environ.get("{ENV_KEY}")'
             if needs_sync:
@@ -347,6 +411,7 @@ def apply(repo: Path, out_dir: Path, scan: dict, sites: list[dict], run_tests: b
                 client_def += f"_token_factory_async = AsyncOpenAI({kw})\n"
             if needs_anthropic:
                 client_def += ANTHROPIC_SHIM + f"\n_token_factory_anthropic = _NemotronMessages(OpenAI({kw}))\n"
+            client_def += "".join(const_lines.get(last_import, []))
             ed.insert_at_line(last_import + 1, client_def)
         if header:
             ed.insert_at_line(line, header)

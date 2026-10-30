@@ -75,3 +75,29 @@ def test_never_switch_to_a_pricier_model():
     assert sav["saving_pct"] < 0
     kept, sav2 = pipeline.never_pricier(site, ev, d, sav)
     assert kept["action"] == "keep" and "costs more than gpt-4o-mini" in kept["reason"] and sav2["saving_pct"] == 0
+
+
+def test_the_original_model_baseline_must_also_disagree_before_a_case_is_set_aside():
+    from switchyard import config
+    fam = {k: _ev(k, [(1, False, 0.5, False), (2, False, 0.5, False), (3, False, 0.5, False), (4, False, 0.5, False)])
+           for k in ("lightning", "super", "ultra")}
+    base = _ev(config.SOURCE_PREFIX + "gpt-4o", [(1, True, 0.9, True), (2, False, 0.5, None), (3, False, 0.5, False),
+                                                 (4, False, 0.5, True)])
+    base["results"][3]["checks"] = [{"name": "matches Pydantic schema", "ok": False}]   # wrong, but not on that field
+    # the Nemotron sizes are one family: without a baseline their agreement is all there is
+    assert evaluate.disputed_cases(dict(fam)) == [1, 2, 3, 4]
+    # with one, it decides: case 1 the original model got right, so the reference stands
+    assert evaluate.disputed_cases({**fam, config.SOURCE_PREFIX + "gpt-4o": base}) == [2, 3]
+    base["results"][1]["error"] = "timeout"
+    assert evaluate.disputed_cases({**fam, config.SOURCE_PREFIX + "gpt-4o": base}) == [3]
+    # a hinted re-run isn't a separate opinion
+    assert evaluate.disputed_cases({"lightning": fam["lightning"], "lightning+hint": fam["super"]}) == []
+
+
+def test_a_patched_schema_message_is_replaced_but_its_merged_hint_kept():
+    sp = evaluate.SCHEMA_PREFIX
+    msgs = [{"role": "system", "content": sp + "{{json_dumps_Event_model_json_schema}}\n\nUse 24-hour times."},
+            {"role": "system", "content": sp + "{{json_dumps_getattr_Event_model_json_sc}}"},
+            {"role": "user", "content": "{{text}}"}]
+    assert evaluate._without_schema(msgs) == [{"role": "system", "content": "Use 24-hour times."},
+                                              {"role": "user", "content": "{{text}}"}]
